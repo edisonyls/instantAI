@@ -22,15 +22,13 @@ InstantAI was born from this exact scenario. I created a centralized platform wh
 
 ## Quick Demo
 
-See InstantAI in action - from document upload to intelligent conversations in under a minute:
-
-![Quick Demo](quick-demo.mov)
+https://github.com/user-attachments/assets/5d3484e9-48d1-4dd2-8802-28cebb44b303
 
 ## Docker Compose Configuration
 
 The application uses a sophisticated Docker Compose setup with three interconnected services:
 
-#### Backend Service
+### Backend Service
 
 - **Base**: FastAPI container
 - **Ports**: 8000
@@ -41,13 +39,13 @@ The application uses a sophisticated Docker Compose setup with three interconnec
   - `OLLAMA_HOST=http://ollama:11434` (service discovery)
   - `CHROMA_DB_PATH=/app/data/chroma_db` (vector database path)
 
-#### Frontend Service
+### Frontend Service
 
 - **Base**: Node.js React development server
 - **Ports**: 3000
 - **Environment**: `REACT_APP_API_URL=http://localhost:8000`
 
-#### Ollama Service
+### Ollama Service
 
 - **Base**: `ollama/ollama:latest` official image
 - **Ports**: 11434
@@ -60,16 +58,22 @@ The application uses a sophisticated Docker Compose setup with three interconnec
 **Why Gemma2:2b?**
 To be honest, there isn't actually a valid answer for this choice. I selected Gemma2:2b based on my preference and practical considerations. Any complex reasoning model would be overkill for this small demonstration, and response generation takes longer time which doesn't fit the "quick answer" scenario. Two billion parameters is generally what a normal laptop can run comfortably. To make the agent more smart and efficient, a model with larger parameters would always be better, but it also means more hardware requirements and higher $$. Ideally, this application would allow users to customize their model based on their needs, but for demonstration purposes, this feature is not implemented and Gemma2:2b is the default choice.
 
+## Vector Database Selection: ChromaDB
+
+- **Embedding Model**: `sentence-transformers/all-MiniLM-L6-v2`
+- **Chunk Size**: 1000 characters with 200-character overlap
+- **Storage**: Persistent SQLite backend for reliability
+
 ## Getting Started
 
-#### 1. Clone the Repository
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/edisonyls/instantAI.git
 cd instantAI
 ```
 
-#### 2. Launch the Application
+### 2. Launch the Application
 
 ```bash
 # Start all services with automatic model download
@@ -79,7 +83,7 @@ docker-compose up --build
 docker-compose up -d --build
 ```
 
-#### 3. Wait for Initialization
+### 3. Wait for Initialization
 
 The first startup downloads the Gemma2:2b model (~1.6GB). This process happens automatically but can take several minutes depending on your internet connection.
 
@@ -95,10 +99,10 @@ docker-compose logs -f ollama
 When you check the Ollama service status at <http://localhost:11434>, you'll see different responses:
 
 - **Not Ready** (Model still downloading):
-  ![Ollama Not Ready](Ollama-not-ready.png)
+  ![Ollama Not Ready](ollama-not-ready.png)
 
 - **Ready** (Model downloaded and loaded):
-  ![Ollama Ready](Ollama-ready.png)
+  ![Ollama Ready](ollama-ready.png)
 
 **Alternative verification methods:**
 
@@ -112,20 +116,20 @@ curl http://localhost:11434/api/show -d '{"name": "gemma2:2b"}'
 
 ⚠️ **Important**: Don't proceed to the next step until Ollama shows the "Ready" status. The backend service depends on the model being fully loaded.
 
-#### 4. Access the Application
+### 4. Access the Application
 
 - **Frontend**: <http://localhost:3000>
 - **Backend API**: <http://localhost:8000>
 - **API Documentation**: <http://localhost:8000/docs>
 
-#### 5. Upload and Chat
+### 5. Upload and Chat
 
 1. Navigate to <http://localhost:3000>
 2. Upload .docx files
 3. Wait for processing completion
 4. Start chatting with your document in <http://localhost:3000/chat>!
 
-#### 6. Generate API Keys (Optional)
+### 6. Generate API Keys (Optional)
 
 You can integrate your trained AI assistant into your own applications. To do this, you will need to:
 
@@ -136,7 +140,6 @@ You can integrate your trained AI assistant into your own applications. To do th
 **Example API Usage:**
 
 ```bash
-# Chat with your documents via API
 curl -X POST http://localhost:8000/api/public/chat \
   -H "Content-Type: application/json" \
   -d '{
