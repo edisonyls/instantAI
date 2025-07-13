@@ -1,0 +1,39 @@
+# FastAPI and web server dependencies
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+python-multipart>=0.0.6
+aiofiles>=23.0.0
+aiohttp>=3.8.0
+
+# Document processing
+python-docx>=0.8.11
+
+# Vector database and embeddings
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+
+# Data processing and utilities
+numpy>=1.24.0
+pandas>=2.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# Logging and monitoring
+loguru>=0.7.0
+
+# Development and testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+httpx>=0.24.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Security - using more flexible versions
+cryptography>=3.4.8
+passlib[bcrypt]>=1.7.4
+
+# Additional utilities - these might not be needed as separate packages
+# uuid is built into Python
+# pathlib is built into Python
+typing-extensions>=4.5.0 
