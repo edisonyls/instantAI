@@ -223,24 +223,6 @@ class APIKeyService:
             logger.error(f"Error listing knowledge bases: {str(e)}")
             return []
 
-    async def deactivate_api_key(self, api_key: str):
-        """Deactivate an API key"""
-        try:
-            with open(self.storage_path, 'r') as f:
-                api_keys = json.load(f)
-
-            if api_key in api_keys:
-                api_keys[api_key]['is_active'] = False
-
-                with open(self.storage_path, 'w') as f:
-                    json.dump(api_keys, f, indent=2)
-
-                logger.info(f"Deactivated API key {api_key}")
-
-        except Exception as e:
-            logger.error(f"Error deactivating API key: {str(e)}")
-            raise
-
     async def _save_api_key(self, api_key: APIKey):
         """Save an API key to storage"""
         try:

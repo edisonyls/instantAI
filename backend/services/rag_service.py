@@ -232,32 +232,6 @@ class RAGService:
             logger.error(f"Error deleting document {document_id}: {str(e)}")
             raise
 
-    async def get_document_stats(self, document_id: str) -> Dict[str, Any]:
-        """ Get statistics for a specific document """
-        if not self.is_initialized:
-            await self.initialize()
-
-        try:
-            results = self.collection.get(where={"document_id": document_id})
-
-            if not results['ids']:
-                return None
-
-            total_length = sum(metadata['length']
-                               for metadata in results['metadatas'])
-
-            return {
-                'document_id': document_id,
-                'filename': results['metadatas'][0]['filename'],
-                'chunk_count': len(results['ids']),
-                'total_length': total_length,
-                'created_at': results['metadatas'][0]['created_at']
-            }
-
-        except Exception as e:
-            logger.error(f"Error getting document stats: {str(e)}")
-            raise
-
     async def get_documents_by_knowledge_base(self, knowledge_base_id: str) -> List[DocumentInfo]:
         """ Get all documents associated with a knowledge base """
         if not self.is_initialized:

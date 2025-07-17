@@ -56,7 +56,7 @@ class DocumentProcessor:
                 for paragraph in header.paragraphs:
                     if paragraph.text.strip():
                         full_text.append(f"[HEADER] {paragraph.text.strip()}")
-            
+
                 footer = section.footer
                 for paragraph in footer.paragraphs:
                     if paragraph.text.strip():
@@ -174,21 +174,22 @@ class DocumentProcessor:
             try:
                 footnote_count = 0
                 comment_count = 0
-                
+
                 # Count footnotes
                 if hasattr(doc.part, 'footnotes_part') and doc.part.footnotes_part:
                     footnote_count = len(doc.part.footnotes_part.footnotes)
-                
+
                 # Count comments
                 if hasattr(doc.part, 'comments_part') and doc.part.comments_part:
                     comment_count = len(doc.part.comments_part.comments)
-                
+
                 result['metadata'].update({
                     'footnote_count': footnote_count,
                     'comment_count': comment_count
                 })
             except Exception as e:
-                logger.warning(f"Could not count additional elements: {str(e)}")
+                logger.warning(
+                    f"Could not count additional elements: {str(e)}")
 
             # Check if document has content
             text_content = self.extract_text(file_path)
@@ -203,62 +204,3 @@ class DocumentProcessor:
             result['errors'].append(f"Error validating document: {str(e)}")
 
         return result
-
-   
-        """ Extract text from shapes and text boxes in the document """
-        try:
-            # Get all drawing elements
-            for element in doc.element.body.iter():
-                if element.tag.endswith('}drawing'):
-                    # Extract text from text boxes and shapes
-                    for text_elem in element.iter():
-                        if text_elem.tag.endswith('}t') and text_elem.text:
-                            text_content = text_elem.text.strip()
-                            if text_content:
-                                full_text.append(f"[SHAPE] {text_content}")
-                
-                # Look for text in WordArt and other text elements
-                elif element.tag.endswith('}t') and element.text:
-                    # Avoid duplicating paragraph text
-                    text_content = element.text.strip()
-                    if text_content and not any(text_content in existing for existing in full_text):
-                        full_text.append(f"[TEXT_ELEMENT] {text_content}")
-                        
-        except Exception as e:
-            logger.warning(f"Could not extract text from shapes: {str(e)}")
-
-   
-        """
-        Extract text from footnotes and comments
-        
-        Args:
-            doc: Document object
-            full_text: List to append extracted text to
-        """
-        try:
-            # Extract footnotes
-            footnotes = doc.part.footnotes_part
-            if footnotes:
-                for footnote in footnotes.footnotes:
-                    for paragraph in footnote.paragraphs:
-                        if paragraph.text.strip():
-                            full_text.append(f"[FOOTNOTE] {paragraph.text.strip()}")
-            
-            # Extract endnotes
-            endnotes = doc.part.endnotes_part
-            if endnotes:
-                for endnote in endnotes.endnotes:
-                    for paragraph in endnote.paragraphs:
-                        if paragraph.text.strip():
-                            full_text.append(f"[ENDNOTE] {paragraph.text.strip()}")
-                            
-            # Extract comments
-            comments = doc.part.comments_part
-            if comments:
-                for comment in comments.comments:
-                    for paragraph in comment.paragraphs:
-                        if paragraph.text.strip():
-                            full_text.append(f"[COMMENT] {paragraph.text.strip()}")
-                            
-        except Exception as e:
-            logger.warning(f"Could not extract footnotes/comments: {str(e)}")

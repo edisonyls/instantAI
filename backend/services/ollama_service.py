@@ -185,36 +185,6 @@ Answer:"""
             logger.error(f"Error generating text: {str(e)}")
             raise
 
-    async def chat_with_history(self, messages: List[Dict[str, str]], context_chunks: List[ContextChunk] = None) -> str:
-        """ Chat with conversation history """
-        if not self.is_initialized:
-            await self.initialize()
-
-        try:
-            # Build conversation prompt
-            conversation = ""
-            for msg in messages:
-                role = msg.get('role', 'user')
-                content = msg.get('content', '')
-                conversation += f"{role.capitalize()}: {content}\n"
-
-            # Add context if available
-            if context_chunks:
-                context_text = "\n".join(
-                    [f"Context: {chunk.content}" for chunk in context_chunks])
-                conversation = f"{context_text}\n\nConversation:\n{conversation}"
-
-            conversation += "Assistant:"
-
-            # Generate response
-            response = await self._generate_text(conversation)
-
-            return response
-
-        except Exception as e:
-            logger.error(f"Error in chat with history: {str(e)}")
-            raise
-
     async def get_available_models(self) -> List[str]:
         """ Get list of available models """
         if not self.session:
@@ -229,21 +199,6 @@ Answer:"""
                     raise Exception(f"Failed to get models: {response.status}")
         except Exception as e:
             logger.error(f"Error getting available models: {str(e)}")
-            raise
-
-    async def switch_model(self, model_name: str):
-        """ Switch to a different model """
-        try:
-            # Check if model is available
-            available_models = await self.get_available_models()
-            if model_name not in available_models:
-                await self._pull_model(model_name)
-
-            self.model = model_name
-            logger.info(f"Switched to model: {model_name}")
-
-        except Exception as e:
-            logger.error(f"Error switching model: {str(e)}")
             raise
 
     async def health_check(self) -> Dict[str, Any]:

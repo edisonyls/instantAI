@@ -132,7 +132,14 @@ async def upload_documents(kb_id: str, files: List[UploadFile] = File(...)):
                 content = await file.read()
                 buffer.write(content)
 
-            logger.info(f"File saved, extracting text...")
+            logger.info(f"File saved, validating and extracting text...")
+
+            # Validate document before processing
+            validation_result = document_processor.validate_document(file_path)
+            if not validation_result['valid']:
+                logger.error(f"Document validation failed for {file.filename}: {validation_result['errors']}")
+                os.remove(file_path)  # Clean up invalid file
+                continue
 
             # Process document
             extracted_text = document_processor.extract_text(file_path)
