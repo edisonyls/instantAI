@@ -326,6 +326,32 @@ async def delete_document(kb_id: str, document_id: str):
             status_code=500, detail=f"Error deleting document: {str(e)}")
 
 
+@app.delete("/api/knowledge-bases/{kb_id}")
+async def delete_knowledge_base(kb_id: str):
+    """
+    Delete a knowledge base and all its associated data
+    """
+    try:
+        # Validate knowledge base exists
+        kb = await api_key_service.get_knowledge_base(kb_id)
+        if not kb:
+            raise HTTPException(
+                status_code=404, detail="Knowledge base not found")
+
+        # Delete all documents from the knowledge base
+        documents = await rag_service.get_documents_by_knowledge_base(kb_id)
+        for doc in documents:
+            await rag_service.delete_document(doc.id)
+
+        # Delete the knowledge base and its API keys
+        await api_key_service.delete_knowledge_base(kb_id)
+
+        return {"message": "Knowledge base deleted successfully"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error deleting knowledge base: {str(e)}")
+
+
 @app.post("/api/public/test-key")
 async def test_api_key(request: dict):
     """

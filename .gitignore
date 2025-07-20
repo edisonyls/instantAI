@@ -1,3 +1,54 @@
+# InstantAI Application Specific
+# Database files
+data/
+*.sqlite3
+*.db
+*.sqlite
+
+# Application data and storage
+backend/data/
+backend/logs/
+backend/temp/
+backend/uploads/
+client/build/
+client/dist/
+
+# API keys and knowledge base storage
+data/api_keys.json
+data/knowledge_bases.json
+
+# Vector database
+data/chroma_db/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+
+# Docker volumes
+ollama_data/
+
+# Application logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+
+# Uploaded files
+uploads/
+
+# Node.js (already covered but being explicit)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python (already covered but being explicit)
+
 .DS_*
 *.log
 logs

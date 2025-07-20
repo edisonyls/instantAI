@@ -265,3 +265,42 @@ class APIKeyService:
             logger.error(
                 f"Error getting API key by knowledge base ID: {str(e)}")
             return None
+
+    async def delete_knowledge_base(self, kb_id: str):
+        """Delete a knowledge base and all its associated API keys"""
+        try:
+            # Delete the knowledge base
+            with open(self.kb_storage_path, 'r') as f:
+                knowledge_bases = json.load(f)
+
+            if kb_id in knowledge_bases:
+                del knowledge_bases[kb_id]
+                with open(self.kb_storage_path, 'w') as f:
+                    json.dump(knowledge_bases, f, indent=2)
+                logger.info(f"Deleted knowledge base {kb_id}")
+
+            # Delete all API keys associated with this knowledge base
+            with open(self.storage_path, 'r') as f:
+                api_keys = json.load(f)
+
+            keys_to_delete = []
+            for key, key_data in api_keys.items():
+                if key_data.get('knowledge_base_id') == kb_id:
+                    keys_to_delete.append(key)
+
+            for key in keys_to_delete:
+                del api_keys[key]
+
+            with open(self.storage_path, 'w') as f:
+                json.dump(api_keys, f, indent=2)
+
+            # Clear cache for deleted keys
+            for key in keys_to_delete:
+                if key in self._api_key_cache:
+                    del self._api_key_cache[key]
+
+            logger.info(f"Deleted {len(keys_to_delete)} API keys for knowledge base {kb_id}")
+
+        except Exception as e:
+            logger.error(f"Error deleting knowledge base {kb_id}: {str(e)}")
+            raise
