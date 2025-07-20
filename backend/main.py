@@ -48,8 +48,17 @@ api_key_service = APIKeyService()
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    await rag_service.initialize()
-    await ollama_service.initialize()
+    try:
+        api_key_service._ensure_storage_files()
+        logger.info("API key service storage files initialized")
+
+        await rag_service.initialize()
+        await ollama_service.initialize()
+
+        logger.info("All services initialized successfully")
+    except Exception as e:
+        logger.error(f"Error during startup: {str(e)}")
+        raise
 
 
 @app.get("/")
@@ -137,7 +146,8 @@ async def upload_documents(kb_id: str, files: List[UploadFile] = File(...)):
             # Validate document before processing
             validation_result = document_processor.validate_document(file_path)
             if not validation_result['valid']:
-                logger.error(f"Document validation failed for {file.filename}: {validation_result['errors']}")
+                logger.error(
+                    f"Document validation failed for {file.filename}: {validation_result['errors']}")
                 os.remove(file_path)  # Clean up invalid file
                 continue
 

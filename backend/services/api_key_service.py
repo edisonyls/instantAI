@@ -32,15 +32,31 @@ class APIKeyService:
 
     def _ensure_storage_files(self):
         """Ensure storage files exist"""
-        os.makedirs("data", exist_ok=True)
+        try:
+            # Create data directory if it doesn't exist
+            os.makedirs("data", exist_ok=True)
+            logger.info(
+                f"Ensuring storage files exist in directory: {os.path.abspath('data')}")
 
-        if not os.path.exists(self.storage_path):
-            with open(self.storage_path, 'w') as f:
-                json.dump({}, f)
+            # Create api_keys.json if it doesn't exist
+            if not os.path.exists(self.storage_path):
+                with open(self.storage_path, 'w') as f:
+                    json.dump({}, f)
+                logger.info(
+                    f"Created new API keys storage file: {self.storage_path}")
 
-        if not os.path.exists(self.kb_storage_path):
-            with open(self.kb_storage_path, 'w') as f:
-                json.dump({}, f)
+            # Create knowledge_bases.json if it doesn't exist
+            if not os.path.exists(self.kb_storage_path):
+                with open(self.kb_storage_path, 'w') as f:
+                    json.dump({}, f)
+                logger.info(
+                    f"Created new knowledge bases storage file: {self.kb_storage_path}")
+
+            logger.info("Storage files initialization completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error ensuring storage files exist: {str(e)}")
+            raise
 
     def generate_api_key(self) -> str:
         """Generate a secure API key"""
@@ -299,7 +315,8 @@ class APIKeyService:
                 if key in self._api_key_cache:
                     del self._api_key_cache[key]
 
-            logger.info(f"Deleted {len(keys_to_delete)} API keys for knowledge base {kb_id}")
+            logger.info(
+                f"Deleted {len(keys_to_delete)} API keys for knowledge base {kb_id}")
 
         except Exception as e:
             logger.error(f"Error deleting knowledge base {kb_id}: {str(e)}")
