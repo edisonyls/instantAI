@@ -183,6 +183,21 @@ export async function deleteDocument(
   }
 }
 
+export async function deleteKnowledgeBase(
+  knowledgeBaseId: string
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/knowledge-bases/${knowledgeBaseId}`,
+    {
+      method: "DELETE",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to delete knowledge base: ${response.statusText}`);
+  }
+}
+
 // Public Chat API
 export async function publicChat(
   request: PublicChatRequest

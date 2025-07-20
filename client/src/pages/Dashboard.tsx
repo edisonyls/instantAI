@@ -13,6 +13,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { cn } from "../utils/cn";
+import { deleteKnowledgeBase } from "../services/api";
 
 interface KnowledgeBase {
   id: string;
@@ -183,6 +184,31 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const deleteKnowledgeBaseHandler = async (kbId: string, kbName: string) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete the knowledge base "${kbName}"? This will permanently delete all documents, API keys, and associated data.`
+      )
+    )
+      return;
+
+    try {
+      await deleteKnowledgeBase(kbId);
+      
+      // If the deleted KB was selected, clear the selection
+      if (selectedKb?.id === kbId) {
+        setSelectedKb(null);
+        setDocuments([]);
+        setApiKey(null);
+      }
+      
+      // Refresh the knowledge bases list
+      await fetchKnowledgeBases();
+    } catch (error) {
+      console.error("Error deleting knowledge base:", error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -217,32 +243,48 @@ export const Dashboard: React.FC = () => {
 
             <div className="p-4 space-y-2">
               {knowledgeBases.map((kb) => (
-                <button
+                <div
                   key={kb.id}
-                  onClick={() => selectKnowledgeBase(kb)}
                   className={cn(
-                    "w-full text-left p-3 rounded-lg transition-colors",
+                    "w-full p-3 rounded-lg transition-colors border",
                     selectedKb?.id === kb.id
-                      ? "bg-blue-50 border-blue-200 border"
-                      : "hover:bg-gray-50"
+                      ? "bg-blue-50 border-blue-200"
+                      : "bg-white border-gray-200 hover:border-gray-300"
                   )}
                 >
                   <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-medium text-gray-900">{kb.name}</h3>
-                      {kb.description && (
-                        <p className="text-sm text-gray-600 mt-1">
-                          {kb.description}
-                        </p>
-                      )}
-                      <div className="flex items-center space-x-3 mt-2 text-xs text-gray-500">
-                        <span>{kb.total_documents} docs</span>
-                        <span>{kb.total_chunks} chunks</span>
+                    <button
+                      onClick={() => selectKnowledgeBase(kb)}
+                      className="flex-1 text-left"
+                    >
+                      <div>
+                        <h3 className="font-medium text-gray-900">{kb.name}</h3>
+                        {kb.description && (
+                          <p className="text-sm text-gray-600 mt-1">
+                            {kb.description}
+                          </p>
+                        )}
+                        <div className="flex items-center space-x-3 mt-2 text-xs text-gray-500">
+                          <span>{kb.total_documents} docs</span>
+                          <span>{kb.total_chunks} chunks</span>
+                        </div>
                       </div>
+                    </button>
+                    <div className="flex items-center space-x-2 ml-3">
+                      <Brain className="w-5 h-5 text-gray-400" />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteKnowledgeBaseHandler(kb.id, kb.name);
+                        }}
+                        className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                        title="Delete knowledge base"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
-                    <Brain className="w-5 h-5 text-gray-400" />
                   </div>
-                </button>
+                </div>
               ))}
 
               {knowledgeBases.length === 0 && (
