@@ -18,6 +18,11 @@ export const PublicChat: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [conversationStats, setConversationStats] = useState<{
+    message_count: number;
+    user_messages: number;
+    assistant_messages: number;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -121,6 +126,11 @@ export const PublicChat: React.FC = () => {
 
         setMessages((prev) => [...prev, assistantMessage]);
         setSessionId(data.session_id);
+        
+        // Fetch updated conversation stats
+        if (data.session_id) {
+          fetchConversationStats(data.session_id);
+        }
       } else if (response.status === 429) {
         setError("Rate limit exceeded. Please try again later.");
       } else {
@@ -131,6 +141,31 @@ export const PublicChat: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const fetchConversationStats = async (sessionId: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/conversations/${sessionId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setConversationStats(data.stats);
+      }
+    } catch (err) {
+      // Silently fail - stats are not critical
+    }
+  };
+
+  const startNewConversation = () => {
+    setMessages([
+      {
+        id: "welcome",
+        content: "Hello! I'm your AI assistant. How can I help you today?",
+        role: "assistant",
+        timestamp: new Date(),
+      },
+    ]);
+    setSessionId(window.crypto.randomUUID());
+    setConversationStats(null);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -221,9 +256,24 @@ export const PublicChat: React.FC = () => {
                 <p className="text-sm text-gray-500">Powered by InstantAI</p>
               </div>
             </div>
-            <div className="flex items-center space-x-2 text-sm text-gray-500">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span>Connected</span>
+            <div className="flex items-center space-x-4 text-sm text-gray-500">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <span>Connected</span>
+              </div>
+              {conversationStats && (
+                <div className="flex items-center space-x-2 text-xs">
+                  <span>Context: {conversationStats.message_count} messages</span>
+                  <span className="text-gray-400">•</span>
+                  <span>{conversationStats.user_messages} user • {conversationStats.assistant_messages} assistant</span>
+                </div>
+              )}
+              <button
+                onClick={startNewConversation}
+                className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              >
+                New Conversation
+              </button>
             </div>
           </div>
         </div>

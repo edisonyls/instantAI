@@ -92,14 +92,15 @@ class OllamaService:
         except Exception as e:
             raise Exception(f"Error pulling model {model_name}: {str(e)}")
 
-    async def generate_response(self, query: str, context_chunks: List[ContextChunk] = None) -> str:
-        """ Generate a response using Ollama with optional context from RAG """
+    async def generate_response(self, query: str, context_chunks: List[ContextChunk] = None, conversation_context: str = "") -> str:
+        """ Generate a response using Ollama with optional context from RAG and conversation history """
         if not self.is_initialized:
             await self.initialize()
 
         try:
             # Build prompt with context
-            prompt = self._build_prompt(query, context_chunks)
+            prompt = self._build_prompt(
+                query, context_chunks, conversation_context)
 
             # Generate response
             response = await self._generate_text(prompt)
@@ -110,34 +111,53 @@ class OllamaService:
             logger.error(f"Error generating response: {str(e)}")
             raise
 
-    def _build_prompt(self, query: str, context_chunks: List[ContextChunk] = None) -> str:
+    def _build_prompt(self, query: str, context_chunks: List[ContextChunk] = None, conversation_context: str = "") -> str:
         """ Build a prompt with context for the AI model """
-        if not context_chunks:
-            return f"""Answer the following question:
 
-Question: {query}
+        system_instructions = """You are an AI assistant helping users understand documents. Use the provided context to answer questions accurately and comprehensively. If there's conversation history, use it to provide more contextual and relevant responses."""
+
+        # Add conversation context if available
+        conversation_section = ""
+        if conversation_context:
+            conversation_section = f"""Previous Conversation:
+{conversation_context}
+
+Current Question: {query}
+
+"""
+        else:
+            conversation_section = f"Question: {query}\n\n"
+
+        # Add document context if available
+        if not context_chunks:
+            prompt = f"""{system_instructions}
+
+{conversation_section}Instructions:
+- Answer the question based on your general knowledge
+- If you don't have enough information, say so clearly
+- Keep your answer concise but complete
+- If there's conversation history, maintain context and refer to previous exchanges when relevant
 
 Answer:"""
+        else:
+            # Build context from chunks
+            context_text = ""
+            for chunk in context_chunks:
+                context_text += f"Source: {chunk.source}\n"
+                context_text += f"Content: {chunk.content}\n"
+                context_text += f"Relevance: {chunk.similarity_score:.2f}\n\n"
 
-        # Build context from chunks
-        context_text = ""
-        for chunk in context_chunks:
-            context_text += f"Source: {chunk.source}\n"
-            context_text += f"Content: {chunk.content}\n"
-            context_text += f"Relevance: {chunk.similarity_score:.2f}\n\n"
+            prompt = f"""{system_instructions}
 
-        prompt = f"""You are an AI assistant helping users understand documents. Use the provided context to answer the question accurately and comprehensively.
-
-Context:
+Document Context:
 {context_text}
 
-Question: {query}
-
-Instructions:
-- Answer based primarily on the provided context
+{conversation_section}Instructions:
+- Answer based primarily on the provided document context
 - If the context doesn't contain enough information, say so clearly
 - Be specific and cite relevant parts of the context
 - Keep your answer concise but complete
+- If there's conversation history, maintain context and refer to previous exchanges when relevant
 
 Answer:"""
 

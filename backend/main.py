@@ -9,6 +9,7 @@ from services.api_key_service import APIKeyService
 from services.ollama_service import OllamaService
 from services.rag_service import RAGService
 from services.document_processor import DocumentProcessor
+from services.conversation_service import ConversationService
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -43,6 +44,7 @@ document_processor = DocumentProcessor()
 rag_service = RAGService()
 ollama_service = OllamaService()
 api_key_service = APIKeyService()
+conversation_service = ConversationService()
 
 
 @app.on_event("startup")
@@ -54,6 +56,11 @@ async def startup_event():
 
         await rag_service.initialize()
         await ollama_service.initialize()
+
+        # Clean up expired conversations on startup
+        deleted_count = await conversation_service.cleanup_expired_conversations()
+        if deleted_count > 0:
+            logger.info(f"Cleaned up {deleted_count} expired conversations on startup")
 
         logger.info("All services initialized successfully")
     except Exception as e:
@@ -268,6 +275,12 @@ async def public_chat(request: PublicChatRequest):
             raise HTTPException(
                 status_code=404, detail="Knowledge base not found")
 
+        # Generate session ID if not provided
+        session_id = request.session_id or str(uuid.uuid4())
+
+        # Get conversation context
+        conversation_context = await conversation_service.get_conversation_context(session_id)
+
         # Retrieve relevant context from vector database
         rag_start = time.time()
         context = await rag_service.retrieve_context(
@@ -276,18 +289,37 @@ async def public_chat(request: PublicChatRequest):
         )
         rag_time = time.time() - rag_start
 
-        # Generate response using Ollama
+        # Generate response using Ollama with conversation context
         ollama_start = time.time()
-        response = await ollama_service.generate_response(request.message, context)
+        response = await ollama_service.generate_response(request.message, context, conversation_context)
         ollama_time = time.time() - ollama_start
 
         # Now count the usage since we successfully processed the request
         await api_key_service.validate_api_key(request.api_key, count_usage=True)
 
-        total_time = time.time() - start_time
+        # Store the conversation messages
+        try:
+            from models.chat_models import ChatMessage, MessageRole
+            
+            # Store user message
+            user_message = ChatMessage(
+                content=request.message,
+                role=MessageRole.USER,
+                session_id=session_id
+            )
+            await conversation_service.add_message(session_id, user_message)
+            
+            # Store assistant response
+            assistant_message = ChatMessage(
+                content=response,
+                role=MessageRole.ASSISTANT,
+                session_id=session_id
+            )
+            await conversation_service.add_message(session_id, assistant_message)
+        except Exception as e:
+            logger.warning(f"Failed to store conversation: {str(e)}")
 
-        # Generate session ID if not provided
-        session_id = request.session_id or str(uuid.uuid4())
+        total_time = time.time() - start_time
 
         return PublicChatResponse(
             response=response,
@@ -411,6 +443,51 @@ async def health_check():
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
+
+
+@app.get("/api/conversations/{session_id}")
+async def get_conversation_history(session_id: str):
+    """
+    Get conversation history for a session
+    """
+    try:
+        conversation = await conversation_service.get_conversation(session_id)
+        stats = await conversation_service.get_conversation_stats(session_id)
+        
+        return {
+            "session_id": session_id,
+            "messages": conversation,
+            "stats": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving conversation: {str(e)}")
+
+
+@app.delete("/api/conversations/{session_id}")
+async def delete_conversation(session_id: str):
+    """
+    Delete a conversation session
+    """
+    try:
+        await conversation_service.delete_conversation(session_id)
+        return {"message": "Conversation deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting conversation: {str(e)}")
+
+
+@app.post("/api/conversations/cleanup")
+async def cleanup_conversations():
+    """
+    Clean up expired conversations
+    """
+    try:
+        deleted_count = await conversation_service.cleanup_expired_conversations()
+        return {
+            "message": f"Cleaned up {deleted_count} expired conversations",
+            "deleted_count": deleted_count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning up conversations: {str(e)}")
 
 
 @app.get("/api/system-info")
