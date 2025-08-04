@@ -147,3 +147,37 @@ curl -X POST http://localhost:8000/api/public/chat \
     "api_key": "your-api-key-here"
   }'
 ```
+
+## Conversation History & Context Management
+
+I have implemented a conversation history management system that maintains context across chat sessions.
+
+### How It Works
+
+#### 1. Session-Based Storage
+
+- **Session Management**: Each conversation is tracked via a unique `session_id` that persists across API calls
+- **File-Based Storage**: Conversations are stored as JSON files in `data/conversations/` directory
+- **Auto-Generated Sessions**: If no session ID is provided, the system automatically generates one using UUID
+
+#### 2. Context Preservation Strategy
+
+The application uses a **sliding window approach** for conversation context:
+
+- **Storage Limit**: Up to 20 messages per conversation are stored (configurable via `max_conversation_length`)
+- **Context Window**: Only the last 10 messages are included in AI prompts (configurable via `max_messages` parameter)
+- **Automatic Pruning**: When conversations exceed 20 messages, older messages are automatically removed to prevent memory overflow
+
+#### 3. Lifecycle Management
+
+- **TTL**: Conversations automatically expire after 24 hours of inactivity
+- **Cleanup Service**: Expired conversations are automatically deleted to prevent storage bloat
+- **Error Handling**: Robust error handling ensures conversation failures don't break the chat experience
+
+#### No Summarization (Yet)
+
+Currently, the application does **not** implement conversation summarization. Instead, it uses:
+
+- **Hard Limits**: Maximum 20 stored messages per session
+- **Context Windows**: Only recent messages (last 10) are sent to the AI
+- **Time-Based Expiry**: Old conversations are automatically cleaned up
