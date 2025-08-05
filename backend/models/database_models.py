@@ -107,6 +107,7 @@ class Conversation(Base):
         "knowledge_bases.id", ondelete="CASCADE"))
     api_key = Column(String(255), ForeignKey(
         "api_keys.key", ondelete="CASCADE"))
+    expires_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True),
                         server_default=func.now(), onupdate=func.now())

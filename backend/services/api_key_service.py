@@ -36,7 +36,7 @@ class APIKeyService:
         key = ''.join(secrets.choice(alphabet) for _ in range(32))
         return f"iai_{key}"
 
-    async def create_api_key(self, knowledge_base_id: str, name: str, owner_id: Optional[str] = None) -> APIKeyModel:
+    async def create_api_key(self, knowledge_base_id: str, name: str) -> APIKeyModel:
         """Create a new API key for a knowledge base"""
         try:
             async with database_service.get_session() as session:
@@ -67,7 +67,6 @@ class APIKeyService:
                     key=key,
                     knowledge_base_id=knowledge_base_id,
                     name=name,
-                    owner_id=owner_id or kb.owner_id,
                     is_active=True,
                     usage_count=0,
                     rate_limit=100
@@ -94,25 +93,13 @@ class APIKeyService:
             logger.error(f"Error creating API key: {str(e)}")
             raise
 
-    async def create_knowledge_base(self, name: str, description: Optional[str] = None, owner_id: Optional[str] = None) -> KnowledgeBaseModel:
+    async def create_knowledge_base(self, name: str, description: Optional[str] = None) -> KnowledgeBaseModel:
         """Create a new knowledge base"""
         try:
             async with database_service.get_session() as session:
-                # Get or create default owner
-                if not owner_id:
-                    # Get default system user
-                    user_result = await session.execute(
-                        select(User).where(User.email ==
-                                           "system@instantai.local")
-                    )
-                    user = user_result.scalar_one_or_none()
-                    if user:
-                        owner_id = str(user.id)
-
                 kb = KnowledgeBase(
                     name=name,
                     description=description,
-                    owner_id=owner_id,
                     total_documents=0,
                     total_chunks=0
                 )
