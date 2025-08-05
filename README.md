@@ -2,13 +2,22 @@
 
 InstantAI is a full-stack AI application that makes creating intelligent document assistants as simple as drag-and-drop. No coding, no AI expertise, no complex setup required - just upload your documents and get a trained AI agent ready to answer questions.
 
-## The Scenario
+## Architecture
 
-### The Problem It's Solving
+**Built with modern, production-ready technologies:**
 
-Imagine: Your have been asked to create a RAG system to help new employees get answers about company policies, procedures, and knowledge without needing someone to sit next to them all day explaining everything.
+- **Database**: PostgreSQL 16 with pgvector extension for vector similarity search
+- **Backend**: FastAPI with async SQLAlchemy and pgvector integration
+- **Frontend**: React with TypeScript and Tailwind CSS
+- **AI**: Ollama for local LLM inference with customizable models
+- **Vector Embeddings**: sentence-transformers for semantic search
+- **Containerization**: Docker Compose for easy deployment
 
-Traditionally, this would mean you will need to:
+## The Problem It Solves
+
+Imagine: You need to create a RAG (Retrieval-Augmented Generation) system to help new employees get answers about company policies, procedures, and knowledge without needing someone to sit next to them all day explaining everything.
+
+Traditionally, this would mean you need to:
 
 - Learn complex AI and machine learning concepts
 - Set up vector databases and embedding models
@@ -16,137 +25,115 @@ Traditionally, this would mean you will need to:
 - Manage infrastructure and deployment
 - Spend weeks or months building something from scratch
 
-### What if there was a better way?
-
-InstantAI was born from this exact scenario. I created a centralized platform where anyone - technical or not - can simply drag and drop their documents and instantly get a trained AI assistant.
+**InstantAI solves this** by providing a centralized platform where anyone - technical or not - can simply drag and drop their documents and instantly get a trained AI assistant.
 
 ## Quick Demo
 
 https://github.com/user-attachments/assets/5d3484e9-48d1-4dd2-8802-28cebb44b303
 
-## Docker Compose Configuration
+## Docker Compose Architecture
 
-The application uses a sophisticated Docker Compose setup with three interconnected services:
+The application uses a sophisticated Docker Compose setup with four interconnected services:
+
+### Database Service
+
+- **Base**: PostgreSQL 16 with pgvector extension
+- **Ports**: 5432
 
 ### Backend Service
 
-- **Base**: FastAPI container
+- **Base**: FastAPI with async Python
 - **Ports**: 8000
-- **Volumes**:
-  - `./backend:/app` (hot reload development)
-  - `./data:/app/data` (persistent data storage)
-- **Environment**:
-  - `OLLAMA_HOST=http://ollama:11434` (service discovery)
-  - `CHROMA_DB_PATH=/app/data/chroma_db` (vector database path)
 
 ### Frontend Service
 
-- **Base**: Node.js React development server
+- **Base**: React with TypeScript
 - **Ports**: 3000
-- **Environment**: `REACT_APP_API_URL=http://localhost:8000`
 
 ### Ollama Service
 
-- **Base**: `ollama/ollama:latest` official image
+- **Base**: Ollama official image
 - **Ports**: 11434
-- **Volumes**: `ollama_data:/root/.ollama` (persistent model storage)
-- **Health Check**: Validates service readiness before backend startup
-- **Entry Point**: Custom script for model initialization
-
-## Model Selection: Gemma2:2b
-
-**Why Gemma2:2b?**
-To be honest, there isn't actually a valid answer for this choice. I selected Gemma2:2b based on my preference and practical considerations. Any complex reasoning model would be overkill for this small demonstration, and response generation takes longer time which doesn't fit the "quick answer" scenario. Two billion parameters is generally what a normal laptop can run comfortably. To make the agent more smart and efficient, a model with larger parameters would always be better, but it also means more hardware requirements and higher $$. Ideally, this application would allow users to customize their model based on their needs, but for demonstration purposes, this feature is not implemented and Gemma2:2b is the default choice.
-
-## Vector Database Selection: ChromaDB
-
-- **Embedding Model**: `sentence-transformers/all-MiniLM-L6-v2`
-- **Chunk Size**: 1000 characters with 200-character overlap
-- **Storage**: Persistent SQLite backend for reliability
 
 ## Getting Started
 
-### 1. Clone the Repository
+### Prerequisites
 
-```bash
-git clone https://github.com/edisonyls/instantAI.git
-cd instantAI
-```
+- Docker and Docker Compose
+- At least 8GB RAM (for AI models)
+- 10GB free disk space
 
-### 2. Launch the Application
+### Installation
 
-```bash
-# Start all services with automatic model download
-docker-compose up --build
+1. **Clone the repository**:
 
-# Or run in background
-docker-compose up -d --build
-```
+   ```bash
+   git clone https://github.com/edisonyls/instantAI
+   cd instantAI
+   ```
 
-### 3. Wait for Initialization
+2. Launch the Application
 
-The first startup downloads the Gemma2:2b model (~1.6GB). This process happens automatically but can take several minutes depending on your internet connection.
+   ```bash
+   # Start all services with automatic model download
+   docker-compose up --build
 
-**Monitor the installation progress:**
+   # Or run in background
+   docker-compose up -d --build
+   ```
 
-```bash
-# Check logs to see download progress
-docker-compose logs -f ollama
-```
+3. Wait for Initialization
 
-**Visual Status Indicators:**
+   The first startup downloads the Gemma2:2b model (~1.6GB). This process happens automatically but can take several minutes depending on your internet connection.
 
-When you check the Ollama service status at <http://localhost:11434>, you'll see different responses:
+   **Monitor the installation progress:**
 
-- **Not Ready** (Model still downloading):
-  ![Ollama Not Ready](ollama-not-ready.png)
+   ```bash
+   # Check logs to see download progress
+   docker-compose logs -f ollama
+   ```
 
-- **Ready** (Model downloaded and loaded):
-  ![Ollama Ready](ollama-ready.png)
+   **Visual Status Indicators:**
 
-**Alternative verification methods:**
+   When you check the Ollama service status at <http://localhost:11434>, you'll see different responses:
 
-```bash
-# Verify model is ready via API
-curl http://localhost:11434/api/tags
+   - **Not Ready** (Model still downloading):
+     ![Ollama Not Ready](ollama-not-ready.png)
 
-# Check if Gemma2:2b is listed in the response
-curl http://localhost:11434/api/show -d '{"name": "gemma2:2b"}'
-```
+   - **Ready** (Model downloaded and loaded):
+     ![Ollama Ready](ollama-ready.png)
 
-⚠️ **Important**: Don't proceed to the next step until Ollama shows the "Ready" status. The backend service depends on the model being fully loaded.
+   **Alternative verification methods:**
 
-### 4. Access the Application
+   ```bash
+   # Verify model is ready via API
+   curl http://localhost:11434/api/tags
 
-- **Frontend**: <http://localhost:3000>
-- **Backend API**: <http://localhost:8000>
-- **API Documentation**: <http://localhost:8000/docs>
+   # Check if Gemma2:2b is listed in the response
+   curl http://localhost:11434/api/show -d '{"name": "gemma2:2b"}'
+   ```
 
-### 5. Upload and Chat
+   ⚠️ **Important**: Don't proceed to the next step until Ollama shows the "Ready" status. The backend service depends on the model being fully loaded.
 
-1. Navigate to <http://localhost:3000>
-2. Upload .docx files
-3. Wait for processing completion
-4. Start chatting with your document in <http://localhost:3000/chat>!
+4. Access the Application
 
-### 6. Generate API Keys (Optional)
+   - **Frontend**: <http://localhost:3000>
+   - **Backend API**: <http://localhost:8000>
+   - **API Documentation**: <http://localhost:8000/docs>
 
-You can integrate your trained AI assistant into your own applications. To do this, you will need to:
+5. Upload and Chat
 
-1. Create a new knowledge base through the web interface (this automatically generates an API key)
-2. Find your API key in the knowledge base details page
-3. Use the API key to build custom chatbots, integrate into websites, or create mobile apps
+   - Navigate to <http://localhost:3000>
+   - Upload .docx files
+   - Wait for processing completion
+   - Start chatting with your document in <http://localhost:3000/chat>!
 
-**Example API Usage:**
+6. Generate API Keys (Optional)
+   You can integrate your trained AI assistant into your own applications. To do this, you will need to:
 
-```bash
-curl -X POST http://localhost:8000/api/public/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "What is our company policy on remote work?",
-    "api_key": "your-api-key-here"
-  }'
-```
+   - Create a new knowledge base through the web interface (this automatically generates an API key)
+   - Find your API key in the knowledge base details page
+   - Use the API key to build custom chatbots, integrate into websites, or create mobile apps
 
 ## Conversation History & Context Management
 
@@ -181,3 +168,83 @@ Currently, the application does **not** implement conversation summarization. In
 - **Hard Limits**: Maximum 20 stored messages per session
 - **Context Windows**: Only recent messages (last 10) are sent to the AI
 - **Time-Based Expiry**: Old conversations are automatically cleaned up
+
+## API Documentation
+
+### Knowledge Base Management
+
+```bash
+# Create a knowledge base
+curl -X POST http://localhost:8000/api/v1/knowledge-bases \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Company Policies", "description": "HR and company policies"}'
+
+# List knowledge bases
+curl http://localhost:8000/api/v1/knowledge-bases
+
+# Get specific knowledge base
+curl http://localhost:8000/api/v1/knowledge-bases/{kb_id}
+```
+
+### Document Management
+
+```bash
+# Upload a document (requires API key in header)
+curl -X POST http://localhost:8000/api/v1/documents/upload \
+  -H "X-API-Key: your-api-key" \
+  -F "file=@document.txt"
+
+# List documents
+curl -H "X-API-Key: your-api-key" \
+  http://localhost:8000/api/v1/documents
+
+# Delete a document
+curl -X DELETE -H "X-API-Key: your-api-key" \
+  http://localhost:8000/api/v1/documents/{document_id}
+```
+
+### Chat Interface
+
+```bash
+# Chat with your documents
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What is our remote work policy?",
+    "api_key": "your-api-key",
+    "session_id": "user-session-123",
+    "model": "gemma2:2b"
+  }'
+```
+
+### System Management
+
+```bash
+# Health check
+curl http://localhost:8000/api/v1/health
+
+# System information and statistics
+curl http://localhost:8000/api/v1/system/info
+
+# Clean up expired conversations
+curl -X POST http://localhost:8000/api/v1/conversations/cleanup
+```
+
+### Model Configuration
+
+The default model is Gemma2:2b (2 billion parameters) which provides:
+
+- Fast inference on consumer hardware
+- Good balance of quality and performance
+- ~1.6GB download size
+
+To use different models, update `OLLAMA_MODEL` and restart:
+
+```bash
+# For more capable models (requires more RAM)
+OLLAMA_MODEL=llama3.1:8b
+OLLAMA_MODEL=llama3.1:70b
+
+# For faster inference
+OLLAMA_MODEL=phi3:mini
+```
