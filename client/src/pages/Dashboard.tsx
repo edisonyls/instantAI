@@ -13,7 +13,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { cn } from "../utils/cn";
-import { deleteKnowledgeBase } from "../services/api";
+import { uploadDocuments, deleteKnowledgeBase } from "../services/api";
 
 interface KnowledgeBase {
   id: string;
@@ -38,9 +38,12 @@ interface APIKey {
 interface Document {
   id: string;
   filename: string;
-  text_length: number;
+  knowledge_base_id: string;
   chunk_count: number;
-  upload_timestamp: string;
+  file_size?: number;
+  text_length?: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export const Dashboard: React.FC = () => {
@@ -58,7 +61,13 @@ export const Dashboard: React.FC = () => {
   const fetchKnowledgeBases = useCallback(async () => {
     try {
       const response = await fetch("http://localhost:8000/api/knowledge-bases");
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch: ${response.status} ${response.statusText}`
+        );
+      }
       const data = await response.json();
+      console.log("Fetched knowledge bases:", data);
       setKnowledgeBases(data.knowledge_bases || []);
 
       // Select first KB if available
@@ -82,7 +91,13 @@ export const Dashboard: React.FC = () => {
       const response = await fetch(
         `http://localhost:8000/api/knowledge-bases/${kb.id}`
       );
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch KB details: ${response.status} ${response.statusText}`
+        );
+      }
       const data = await response.json();
+      console.log("KB details:", data);
       setDocuments(data.documents || []);
       setApiKey(data.api_key);
     } catch (error) {
@@ -122,33 +137,44 @@ export const Dashboard: React.FC = () => {
   };
 
   const onDrop = async (acceptedFiles: File[]) => {
-    if (!selectedKb) return;
+    if (!selectedKb || !apiKey) {
+      alert("Please select a knowledge base first");
+      return;
+    }
 
-    const formData = new FormData();
-    acceptedFiles.forEach((file) => {
-      formData.append("files", file);
-    });
+    if (acceptedFiles.length === 0) {
+      alert("No valid files selected. Please upload .txt or .docx files only.");
+      return;
+    }
 
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/knowledge-bases/${selectedKb.id}/documents`,
-        {
-          method: "POST",
-          body: formData,
-        }
+      const result = await uploadDocuments(
+        selectedKb.id,
+        acceptedFiles,
+        apiKey.key
       );
+      await selectKnowledgeBase(selectedKb);
 
-      if (response.ok) {
-        await selectKnowledgeBase(selectedKb);
+      if (result.errors && result.errors.length > 0) {
+        const errorMessages = result.errors
+          .map((err: any) => `${err.filename}: ${err.error}`)
+          .join("\n");
+        alert(`Some files failed to upload:\n${errorMessages}`);
+      } else {
+        alert(`Successfully uploaded ${result.total_uploaded} document(s)`);
       }
     } catch (error) {
       console.error("Error uploading documents:", error);
+      alert(
+        `Failed to upload documents: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
+      "text/plain": [".txt"],
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         [".docx"],
     },
@@ -194,14 +220,14 @@ export const Dashboard: React.FC = () => {
 
     try {
       await deleteKnowledgeBase(kbId);
-      
+
       // If the deleted KB was selected, clear the selection
       if (selectedKb?.id === kbId) {
         setSelectedKb(null);
         setDocuments([]);
         setApiKey(null);
       }
-      
+
       // Refresh the knowledge bases list
       await fetchKnowledgeBases();
     } catch (error) {
@@ -409,10 +435,10 @@ export const Dashboard: React.FC = () => {
                     <p className="text-gray-600">
                       {isDragActive
                         ? "Drop the files here..."
-                        : "Drag & drop Word documents here, or click to select"}
+                        : "Drag & drop documents here, or click to select"}
                     </p>
                     <p className="text-sm text-gray-500 mt-2">
-                      Supports multiple .docx files (10MB total)
+                      Supports .txt and .docx files (10MB max per file)
                     </p>
                   </div>
 
@@ -432,7 +458,11 @@ export const Dashboard: React.FC = () => {
                               </p>
                               <p className="text-xs text-gray-500">
                                 {doc.chunk_count} chunks •{" "}
-                                {(doc.text_length / 1000).toFixed(1)}k chars
+                                {doc.text_length
+                                  ? `${(doc.text_length / 1000).toFixed(1)}k chars`
+                                  : doc.file_size
+                                    ? `${(doc.file_size / 1024).toFixed(1)}KB`
+                                    : "Size unknown"}
                               </p>
                             </div>
                           </div>
@@ -466,7 +496,7 @@ export const Dashboard: React.FC = () => {
 
       {/* Create Knowledge Base Modal */}
       {showCreateModal && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
@@ -492,9 +522,9 @@ export const Dashboard: React.FC = () => {
                   placeholder="My AI Agent"
                   autoFocus
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && kbName.trim()) {
+                    if (e.key === "Enter" && kbName.trim()) {
                       createKnowledgeBase();
-                    } else if (e.key === 'Escape') {
+                    } else if (e.key === "Escape") {
                       setShowCreateModal(false);
                     }
                   }}
@@ -512,7 +542,7 @@ export const Dashboard: React.FC = () => {
                   rows={3}
                   placeholder="Describe what this agent will help with..."
                   onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
+                    if (e.key === "Escape") {
                       setShowCreateModal(false);
                     }
                   }}
@@ -531,7 +561,9 @@ export const Dashboard: React.FC = () => {
                 onClick={createKnowledgeBase}
                 disabled={!kbName.trim()}
                 className={`btn btn-primary px-5 py-2.5 min-w-[90px] transition-all duration-200 ${
-                  !kbName.trim() ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-lg'
+                  !kbName.trim()
+                    ? "opacity-50 cursor-not-allowed"
+                    : "hover:shadow-lg"
                 }`}
               >
                 Create

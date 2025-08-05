@@ -143,7 +143,8 @@ Answer:"""
             # Build context from chunks
             context_text = ""
             for chunk in context_chunks:
-                context_text += f"Source: {chunk.source}\n"
+                source = chunk.metadata.get('filename', 'Unknown') if chunk.metadata else 'Unknown'
+                context_text += f"Source: {source}\n"
                 context_text += f"Content: {chunk.content}\n"
                 context_text += f"Relevance: {chunk.similarity_score:.2f}\n\n"
 

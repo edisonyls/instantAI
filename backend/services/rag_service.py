@@ -1,334 +1,332 @@
-import os
-import uuid
 import logging
+import uuid
 from typing import List, Dict, Optional, Any
-from datetime import datetime
-import chromadb
-from chromadb.config import Settings as ChromaSettings
+from datetime import datetime, timezone
 from sentence_transformers import SentenceTransformer
 import numpy as np
+from sqlalchemy import select, text, update, and_
+from sqlalchemy.orm import selectinload
 
 try:
     from backend.config import settings
     from backend.models.chat_models import ContextChunk, DocumentInfo
+    from backend.models.database_models import (
+        Document, DocumentChunk, KnowledgeBase
+    )
     from backend.services.document_processor import DocumentProcessor
+    from backend.services.database_service import database_service
 except ImportError:
     from config import settings
     from models.chat_models import ContextChunk, DocumentInfo
+    from models.database_models import (
+        Document, DocumentChunk, KnowledgeBase
+    )
     from services.document_processor import DocumentProcessor
+    from services.database_service import database_service
 
 logger = logging.getLogger(__name__)
 
 
 class RAGService:
-    """Service for Retrieval-Augmented Generation using vector embeddings"""
+    """Service for Retrieval-Augmented Generation using PostgreSQL and pgvector"""
 
     def __init__(self):
-        self.client = None
-        self.collection = None
         self.embedding_model = None
         self.document_processor = DocumentProcessor()
         self.is_initialized = False
 
     async def initialize(self):
-        """Initialize the RAG service with ChromaDB and embedding model"""
+        """Initialize the RAG service with embedding model"""
         try:
-            # Initialize ChromaDB client
-            self.client = chromadb.PersistentClient(
-                path=settings.CHROMA_DB_PATH,
-                settings=ChromaSettings(anonymized_telemetry=False)
-            )
-
-            # Get or create collection
-            self.collection = self.client.get_or_create_collection(
-                name=settings.VECTOR_DB_COLLECTION,
-                metadata={"hnsw:space": "cosine"}
-            )
-
-            # Initialize embedding model
             self.embedding_model = SentenceTransformer(
                 settings.EMBEDDING_MODEL)
 
+            await database_service.initialize()
+
             self.is_initialized = True
-            logger.info("RAG service initialized successfully")
+            logger.info("PostgreSQL RAG service initialized successfully")
 
         except Exception as e:
             logger.error(f"Error initializing RAG service: {str(e)}")
             raise
 
-    async def process_document(self, text: str, filename: str, knowledge_base_id: Optional[str] = None) -> str:
-        """ Process a document: chunk it, create embeddings, and store in vector database """
+    async def process_document(self, text: str, filename: str, knowledge_base_id: str, file_size: Optional[int] = None) -> str:
+        """Process a document and store it with embeddings in PostgreSQL"""
         if not self.is_initialized:
             await self.initialize()
 
         try:
-            document_id = str(uuid.uuid4())
+            async with database_service.get_session() as session:
+                document = Document(
+                    knowledge_base_id=knowledge_base_id,
+                    filename=filename,
+                    original_text=text,
+                    file_size=file_size
+                )
+                session.add(document)
+                await session.flush()
 
-            # Preprocess text
-            processed_text = self.document_processor.preprocess_text(text)
+                document_id = str(document.id)
 
-            # Chunk the text
-            chunks = self.document_processor.chunk_text(processed_text)
+                # Preprocess text
+                processed_text = self.document_processor.preprocess_text(text)
+                document.processed_text = processed_text
 
-            # Create embeddings for each chunk
-            chunk_texts = [chunk['text'] for chunk in chunks]
-            embeddings = self.embedding_model.encode(chunk_texts)
+                # Chunk the text
+                chunks = self.document_processor.chunk_text(processed_text)
 
-            # Prepare data for ChromaDB
-            ids = [f"{document_id}_{chunk['id']}" for chunk in chunks]
-            metadatas = []
+                # Create embeddings for each chunk
+                chunk_texts = [chunk['text'] for chunk in chunks]
+                embeddings = self.embedding_model.encode(chunk_texts)
 
-            for i, chunk in enumerate(chunks):
-                metadata = {
-                    'document_id': document_id,
-                    'filename': filename,
-                    'chunk_index': chunk['chunk_index'],
-                    'start_char': chunk['start_char'],
-                    'end_char': chunk['end_char'],
-                    'length': chunk['length'],
-                    'created_at': datetime.now().isoformat()
-                }
+                # Store chunks with embeddings
+                chunk_count = 0
+                for i, chunk in enumerate(chunks):
+                    chunk_record = DocumentChunk(
+                        document_id=document.id,
+                        knowledge_base_id=knowledge_base_id,
+                        chunk_index=chunk['chunk_index'],
+                        content=chunk['text'],
+                        start_char=chunk['start_char'],
+                        end_char=chunk['end_char'],
+                        length=chunk['length'],
+                        embedding=embeddings[i].tolist()
+                    )
+                    session.add(chunk_record)
+                    chunk_count += 1
 
-                if knowledge_base_id:
-                    metadata['knowledge_base_id'] = knowledge_base_id
-                metadatas.append(metadata)
+                document.chunk_count = chunk_count
 
-            # Add to ChromaDB
-            self.collection.add(
-                embeddings=embeddings.tolist(),
-                documents=chunk_texts,
-                metadatas=metadatas,
-                ids=ids
-            )
+                await session.execute(
+                    update(KnowledgeBase)
+                    .where(KnowledgeBase.id == knowledge_base_id)
+                    .values(
+                        total_documents=KnowledgeBase.total_documents + 1,
+                        total_chunks=KnowledgeBase.total_chunks + chunk_count,
+                        updated_at=datetime.now(timezone.utc)
+                    )
+                )
 
-            logger.info(
-                f"Successfully processed document {filename} with {len(chunks)} chunks")
-            return document_id
+                logger.info(
+                    f"Successfully processed document {filename} with {len(chunks)} chunks")
+                return document_id
 
         except Exception as e:
             logger.error(f"Error processing document {filename}: {str(e)}")
             raise
 
-    async def retrieve_context(self, query: str, document_id: Optional[str] = None, knowledge_base_id: Optional[str] = None) -> List[ContextChunk]:
-        """ Retrieve relevant context chunks for a query """
+    async def retrieve_context(self, query: str, knowledge_base_id: str,
+                               document_id: Optional[str] = None,
+                               max_chunks: int = None) -> List[ContextChunk]:
+        """Retrieve relevant context chunks using vector similarity search"""
         if not self.is_initialized:
             await self.initialize()
 
         try:
-            logger.info(
-                f"Retrieving context for query: '{query}', document_id: {document_id}, knowledge_base_id: {knowledge_base_id}")
+            # Generate query embedding
+            query_embedding = self.embedding_model.encode([query])[0]
 
-            # Create query embedding
-            query_embedding = self.embedding_model.encode([query])
+            max_chunks = max_chunks or settings.MAX_RETRIEVED_CHUNKS
+            similarity_threshold = settings.SIMILARITY_THRESHOLD
 
-            # Prepare where clause for filtering
-            where_clause = None
-            if document_id:
-                where_clause = {"document_id": document_id}
-                logger.info(f"Filtering by document_id: {document_id}")
-            elif knowledge_base_id:
-                where_clause = {"knowledge_base_id": knowledge_base_id}
+            async with database_service.get_session() as session:
+                # Convert embedding to proper format for PostgreSQL vector
+                embedding_list = query_embedding.tolist()
+                
+                # Use a simpler approach with direct SQL execution
+                # First, let's convert the list to a proper vector format string
+                vector_str = '[' + ','.join(map(str, embedding_list)) + ']'
+                
+                # Build the query using string formatting (less ideal but working approach)
+                base_query = f"""
+                SELECT dc.id, dc.document_id, dc.knowledge_base_id, dc.chunk_index, 
+                       dc.content, dc.start_char, dc.end_char, dc.length, dc.created_at,
+                       d.filename,
+                       1 - (dc.embedding <=> '{vector_str}'::vector) as similarity
+                FROM document_chunks dc
+                JOIN documents d ON dc.document_id = d.id
+                WHERE dc.knowledge_base_id = '{knowledge_base_id}'
+                """
+
+                if document_id:
+                    base_query += f" AND dc.document_id = '{document_id}'"
+
+                # Add similarity threshold and ordering
+                base_query += f"""
+                AND (1 - (dc.embedding <=> '{vector_str}'::vector)) > {similarity_threshold}
+                ORDER BY similarity DESC
+                LIMIT {max_chunks}
+                """
+
+                # Execute the query
+                result = await session.execute(text(base_query))
+                rows = result.fetchall()
+
+                context_chunks = []
+                for row in rows:
+                    context_chunk = ContextChunk(
+                        content=row.content,
+                        document_id=str(row.document_id),
+                        chunk_index=row.chunk_index,
+                        similarity_score=float(row.similarity),
+                        metadata={
+                            'filename': row.filename,
+                            'start_char': row.start_char,
+                            'end_char': row.end_char,
+                            'length': row.length
+                        }
+                    )
+                    context_chunks.append(context_chunk)
+
                 logger.info(
-                    f"Filtering by knowledge_base_id: {knowledge_base_id}")
-
-            # Search in ChromaDB
-            results = self.collection.query(
-                query_embeddings=query_embedding.tolist(),
-                n_results=settings.MAX_RETRIEVED_CHUNKS,
-                where=where_clause
-            )
-
-            logger.info(
-                f"ChromaDB query results: {len(results.get('documents', [[]])[0])} documents found")
-
-            # Convert results to ContextChunk objects
-            context_chunks = []
-            if results['documents'] and results['documents'][0]:
-                for i, doc in enumerate(results['documents'][0]):
-                    metadata = results['metadatas'][0][i]
-                    distance = results['distances'][0][i]
-
-                    similarity_score = 1 - distance
-
-                    if similarity_score >= settings.SIMILARITY_THRESHOLD:
-                        context_chunks.append(ContextChunk(
-                            content=doc,
-                            similarity_score=similarity_score,
-                            source=metadata['filename'],
-                            chunk_id=results['ids'][0][i]
-                        ))
-
-            logger.info(
-                f"Retrieved {len(context_chunks)} context chunks for query")
-            if len(context_chunks) == 0:
-                logger.warning(
-                    f"No context chunks found for query: '{query}' with filters")
-            return context_chunks
+                    f"Retrieved {len(context_chunks)} relevant chunks for query")
+                return context_chunks
 
         except Exception as e:
             logger.error(f"Error retrieving context: {str(e)}")
-            raise
+            return []
 
-    async def list_documents(self) -> List[DocumentInfo]:
-        """ List all processed documents """
-        if not self.is_initialized:
-            await self.initialize()
-
+    async def delete_document(self, document_id: str) -> bool:
+        """Delete a document and all its chunks"""
         try:
-            # Get all documents from collection
-            results = self.collection.get()
+            async with database_service.get_session() as session:
+                result = await session.execute(
+                    select(Document).where(Document.id == document_id)
+                )
+                document = result.scalar_one_or_none()
 
-            # Group by document_id
-            documents_dict = {}
-            for i, metadata in enumerate(results['metadatas']):
-                doc_id = metadata['document_id']
-                if doc_id not in documents_dict:
-                    documents_dict[doc_id] = {
-                        'id': doc_id,
-                        'filename': metadata['filename'],
-                        'chunks': 0,
-                        'total_length': 0,
-                        'created_at': metadata['created_at']
-                    }
-                documents_dict[doc_id]['chunks'] += 1
-                documents_dict[doc_id]['total_length'] += metadata['length']
+                if not document:
+                    return False
 
-            # Convert to DocumentInfo objects
-            documents = []
-            for doc_data in documents_dict.values():
-                documents.append(DocumentInfo(
-                    id=doc_data['id'],
-                    filename=doc_data['filename'],
-                    text_length=doc_data['total_length'],
-                    chunk_count=doc_data['chunks'],
-                    upload_timestamp=datetime.fromisoformat(
-                        doc_data['created_at'])
-                ))
+                knowledge_base_id = document.knowledge_base_id
+                chunk_count = document.chunk_count
 
-            return documents
+                await session.delete(document)
+
+                await session.execute(
+                    update(KnowledgeBase)
+                    .where(KnowledgeBase.id == knowledge_base_id)
+                    .values(
+                        total_documents=KnowledgeBase.total_documents - 1,
+                        total_chunks=KnowledgeBase.total_chunks - chunk_count,
+                        updated_at=datetime.now(timezone.utc)
+                    )
+                )
+
+                logger.info(f"Deleted document {document_id}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error deleting document: {str(e)}")
+            return False
+
+    async def get_document_info(self, document_id: str) -> Optional[DocumentInfo]:
+        """Get document information"""
+        try:
+            async with database_service.get_session() as session:
+                result = await session.execute(
+                    select(Document)
+                    .options(selectinload(Document.chunks))
+                    .where(Document.id == document_id)
+                )
+                document = result.scalar_one_or_none()
+
+                if not document:
+                    return None
+
+                return DocumentInfo(
+                    id=str(document.id),
+                    filename=document.filename,
+                    knowledge_base_id=str(document.knowledge_base_id),
+                    chunk_count=document.chunk_count,
+                    file_size=document.file_size,
+                    created_at=document.created_at,
+                    updated_at=document.updated_at
+                )
+
+        except Exception as e:
+            logger.error(f"Error getting document info: {str(e)}")
+            return None
+
+    async def list_documents(self, knowledge_base_id: str) -> List[DocumentInfo]:
+        """List all documents in a knowledge base"""
+        try:
+            async with database_service.get_session() as session:
+                result = await session.execute(
+                    select(Document).where(
+                        Document.knowledge_base_id == knowledge_base_id)
+                )
+                documents = result.scalars().all()
+
+                return [
+                    DocumentInfo(
+                        id=str(doc.id),
+                        filename=doc.filename,
+                        knowledge_base_id=str(doc.knowledge_base_id),
+                        chunk_count=doc.chunk_count,
+                        file_size=doc.file_size,
+                        text_length=len(doc.processed_text) if doc.processed_text else len(doc.original_text) if doc.original_text else 0,
+                        created_at=doc.created_at,
+                        updated_at=doc.updated_at
+                    )
+                    for doc in documents
+                ]
 
         except Exception as e:
             logger.error(f"Error listing documents: {str(e)}")
-            raise
+            return []
 
-    async def delete_document(self, document_id: str):
-        """ Delete a document and all its chunks from the vector database """
-        if not self.is_initialized:
-            await self.initialize()
-
+    async def get_knowledge_base_stats(self, knowledge_base_id: str) -> Dict[str, int]:
+        """Get statistics for a knowledge base"""
         try:
-            # Get all chunks for this document
-            results = self.collection.get(where={"document_id": document_id})
+            async with database_service.get_session() as session:
+                kb_result = await session.execute(
+                    select(KnowledgeBase).where(
+                        KnowledgeBase.id == knowledge_base_id)
+                )
+                kb = kb_result.scalar_one_or_none()
 
-            if results['ids']:
-                # Delete all chunks
-                self.collection.delete(ids=results['ids'])
-                logger.info(
-                    f"Deleted document {document_id} with {len(results['ids'])} chunks")
-            else:
-                logger.warning(f"Document {document_id} not found")
+                if not kb:
+                    return {"total_documents": 0, "total_chunks": 0}
 
-        except Exception as e:
-            logger.error(f"Error deleting document {document_id}: {str(e)}")
-            raise
-
-    async def get_documents_by_knowledge_base(self, knowledge_base_id: str) -> List[DocumentInfo]:
-        """ Get all documents associated with a knowledge base """
-        if not self.is_initialized:
-            await self.initialize()
-
-        try:
-            # Get all documents from collection with this knowledge base ID
-            results = self.collection.get(
-                where={"knowledge_base_id": knowledge_base_id})
-
-            # Group by document_id
-            documents_dict = {}
-            for i, metadata in enumerate(results['metadatas']):
-                doc_id = metadata['document_id']
-                if doc_id not in documents_dict:
-                    documents_dict[doc_id] = {
-                        'id': doc_id,
-                        'filename': metadata['filename'],
-                        'chunks': 0,
-                        'total_length': 0,
-                        'created_at': metadata['created_at']
-                    }
-                documents_dict[doc_id]['chunks'] += 1
-                documents_dict[doc_id]['total_length'] += metadata['length']
-
-            # Convert to DocumentInfo objects
-            documents = []
-            for doc_data in documents_dict.values():
-                documents.append(DocumentInfo(
-                    id=doc_data['id'],
-                    filename=doc_data['filename'],
-                    text_length=doc_data['total_length'],
-                    chunk_count=doc_data['chunks'],
-                    upload_timestamp=datetime.fromisoformat(
-                        doc_data['created_at'])
-                ))
-
-            return documents
-
-        except Exception as e:
-            logger.error(
-                f"Error getting documents by knowledge base: {str(e)}")
-            raise
-
-    async def get_knowledge_base_stats(self, knowledge_base_id: str) -> Dict[str, Any]:
-        """ Get statistics for a knowledge base """
-        if not self.is_initialized:
-            await self.initialize()
-
-        try:
-            results = self.collection.get(
-                where={"knowledge_base_id": knowledge_base_id})
-
-            if not results['ids']:
                 return {
-                    'knowledge_base_id': knowledge_base_id,
-                    'total_documents': 0,
-                    'total_chunks': 0,
-                    'total_length': 0,
-                    'document_ids': []
+                    "total_documents": kb.total_documents,
+                    "total_chunks": kb.total_chunks
                 }
-
-            # Get unique document IDs
-            document_ids = list(
-                set(metadata['document_id'] for metadata in results['metadatas']))
-            total_length = sum(metadata['length']
-                               for metadata in results['metadatas'])
-
-            return {
-                'knowledge_base_id': knowledge_base_id,
-                'total_documents': len(document_ids),
-                'total_chunks': len(results['ids']),
-                'total_length': total_length,
-                'document_ids': document_ids
-            }
 
         except Exception as e:
             logger.error(f"Error getting knowledge base stats: {str(e)}")
-            raise
+            return {"total_documents": 0, "total_chunks": 0}
 
-    async def health_check(self) -> Dict[str, Any]:
-        """ Perform health check on the RAG service """
+    async def cleanup_knowledge_base(self, knowledge_base_id: str) -> bool:
+        """Remove all documents and chunks from a knowledge base"""
         try:
-            if not self.is_initialized:
-                return {"status": "not_initialized", "error": "Service not initialized"}
+            async with database_service.get_session() as session:
+                documents_result = await session.execute(
+                    select(Document).where(
+                        Document.knowledge_base_id == knowledge_base_id)
+                )
+                documents = documents_result.scalars().all()
 
-            collection_count = self.collection.count()
+                for document in documents:
+                    await session.delete(document)
 
-            # Check embedding model
-            test_embedding = self.embedding_model.encode(["test"])
+                await session.execute(
+                    update(KnowledgeBase)
+                    .where(KnowledgeBase.id == knowledge_base_id)
+                    .values(
+                        total_documents=0,
+                        total_chunks=0,
+                        updated_at=datetime.now(timezone.utc)
+                    )
+                )
 
-            return {
-                "status": "healthy",
-                "collection_count": collection_count,
-                "embedding_model": settings.EMBEDDING_MODEL,
-                "embedding_dimension": len(test_embedding)
-            }
+                logger.info(f"Cleaned up knowledge base {knowledge_base_id}")
+                return True
 
         except Exception as e:
-            return {"status": "unhealthy", "error": str(e)}
+            logger.error(f"Error cleaning up knowledge base: {str(e)}")
+            return False
+
+
+rag_service = RAGService()

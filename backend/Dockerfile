@@ -17,6 +17,5 @@ RUN mkdir -p /app/data
 EXPOSE 8000
 
 ENV PYTHONPATH=/app
-ENV CHROMA_DB_PATH=/app/data/chroma_db
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

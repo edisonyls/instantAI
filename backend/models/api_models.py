@@ -36,21 +36,17 @@ class CreateKnowledgeBaseRequest(BaseModel):
 
 class CreateKnowledgeBaseResponse(BaseModel):
     """Response model for creating a knowledge base"""
-    knowledge_base: KnowledgeBase = Field(..., description="Created knowledge base")
-    api_key: APIKey = Field(..., description="Generated API key")
-    message: str = Field(..., description="Success message")
+    knowledge_base_id: str = Field(..., description="Created knowledge base ID")
+    name: str = Field(..., description="Knowledge base name")
+    description: Optional[str] = Field(None, description="Knowledge base description")
+    api_key: str = Field(..., description="Generated API key")
 
 
-class UploadDocumentsRequest(BaseModel):
-    """Request model for uploading documents to a knowledge base"""
-    knowledge_base_id: str = Field(..., description="Target knowledge base ID")
-
-
-class UploadDocumentsResponse(BaseModel):
+class DocumentUploadResponse(BaseModel):
     """Response model for document upload"""
-    knowledge_base_id: str = Field(..., description="Knowledge base ID")
-    uploaded_documents: List[Dict[str, Any]] = Field(..., description="List of uploaded document info")
-    total_documents: int = Field(..., description="Total documents in knowledge base")
+    document_id: str = Field(..., description="Generated document ID")
+    filename: str = Field(..., description="Original filename")
+    status: str = Field(..., description="Processing status")
     message: str = Field(..., description="Success message")
 
 
@@ -59,6 +55,7 @@ class PublicChatRequest(BaseModel):
     message: str = Field(..., description="User's message")
     api_key: str = Field(..., description="API key for authentication")
     session_id: Optional[str] = Field(None, description="Session ID for conversation tracking")
+    model: Optional[str] = Field(default="gemma2:2b", description="AI model to use")
 
 
 class PublicChatResponse(BaseModel):
@@ -66,15 +63,4 @@ class PublicChatResponse(BaseModel):
     response: str = Field(..., description="AI agent's response")
     session_id: str = Field(..., description="Session ID for conversation tracking")
     usage: Dict[str, int] = Field(..., description="Usage statistics")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
-
-
-class KnowledgeBaseStats(BaseModel):
-    """Model for knowledge base statistics"""
-    knowledge_base_id: str = Field(..., description="Knowledge base ID")
-    total_documents: int = Field(..., description="Total number of documents")
-    total_chunks: int = Field(..., description="Total number of chunks")
-    total_text_length: int = Field(..., description="Total text length in characters")
-    api_calls_today: int = Field(..., description="API calls made today")
-    api_calls_total: int = Field(..., description="Total API calls")
-    last_accessed: Optional[datetime] = Field(None, description="Last access timestamp") 
+    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp") 

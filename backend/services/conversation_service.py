@@ -1,179 +1,227 @@
-import json
 import logging
 from typing import List, Dict, Optional, Any
-from datetime import datetime, timedelta
-import os
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import select, and_, delete
+from sqlalchemy.orm import selectinload
 
 try:
     from backend.models.chat_models import ChatMessage, MessageRole
+    from backend.models.database_models import Conversation, ConversationMessage
+    from backend.services.database_service import database_service
 except ImportError:
     from models.chat_models import ChatMessage, MessageRole
+    from models.database_models import Conversation, ConversationMessage
+    from services.database_service import database_service
 
 logger = logging.getLogger(__name__)
 
 
 class ConversationService:
-    """Service for managing conversation history and context"""
+    """Service for managing conversation history and context using PostgreSQL"""
 
     def __init__(self):
-        self.conversations_dir = Path("data/conversations")
-        self.conversations_dir.mkdir(parents=True, exist_ok=True)
         self.max_conversation_length = 20
         self.conversation_ttl_hours = 24
 
-    def _get_conversation_file(self, session_id: str) -> Path:
-        """Get the file path for a conversation session"""
-        return self.conversations_dir / f"{session_id}.json"
-
-    async def add_message(self, session_id: str, message: ChatMessage) -> None:
+    async def add_message(self, session_id: str, message: ChatMessage,
+                          knowledge_base_id: Optional[str] = None,
+                          api_key: Optional[str] = None) -> None:
         """Add a message to the conversation history"""
         try:
-            conversation = await self.get_conversation(session_id)
+            async with database_service.get_session() as session:
+                conversation = await self._get_or_create_conversation(
+                    session, session_id, knowledge_base_id, api_key
+                )
 
-            # Add the new message
-            conversation.append({
-                "role": message.role.value,
-                "content": message.content,
-                "timestamp": datetime.now().isoformat()
-            })
+                new_message = ConversationMessage(
+                    conversation_id=conversation.id,
+                    role=message.role.value,
+                    content=message.content
+                )
+                session.add(new_message)
 
-            # Keep only the last N messages to prevent context overflow
-            if len(conversation) > self.max_conversation_length:
-                conversation = conversation[-self.max_conversation_length:]
+                await self._cleanup_conversation_messages(session, conversation.id)
 
-            # Save the conversation
-            await self._save_conversation(session_id, conversation)
+                conversation.updated_at = datetime.now(timezone.utc)
 
-            logger.info(f"Added message to conversation {session_id}")
+                logger.info(f"Added message to conversation {session_id}")
 
         except Exception as e:
             logger.error(f"Error adding message to conversation: {str(e)}")
             raise
 
     async def get_conversation(self, session_id: str) -> List[Dict[str, Any]]:
-        """Get the conversation history for a session"""
+        """Get conversation history for a session"""
         try:
-            conversation_file = self._get_conversation_file(session_id)
+            async with database_service.get_session() as session:
+                result = await session.execute(
+                    select(Conversation)
+                    .options(selectinload(Conversation.messages))
+                    .where(Conversation.session_id == session_id)
+                )
+                conversation = result.scalar_one_or_none()
 
-            if not conversation_file.exists():
-                return []
+                if not conversation:
+                    return []
 
-            # Check if conversation is expired
-            if await self._is_conversation_expired(conversation_file):
-                await self.delete_conversation(session_id)
-                return []
+                # Check if conversation has expired
+                if self._is_conversation_expired(conversation):
+                    await self.delete_conversation(session_id)
+                    return []
 
-            with open(conversation_file, 'r', encoding='utf-8') as f:
-                conversation = json.load(f)
+                messages = []
+                for msg in sorted(conversation.messages, key=lambda x: x.created_at):
+                    messages.append({
+                        "role": msg.role,
+                        "content": msg.content,
+                        "timestamp": msg.created_at.isoformat()
+                    })
 
-            return conversation
+                return messages
 
         except Exception as e:
             logger.error(f"Error getting conversation {session_id}: {str(e)}")
             return []
 
     async def get_conversation_context(self, session_id: str, max_messages: int = 10) -> str:
-        """Get formatted conversation context for the AI prompt"""
+        """Get formatted conversation context for RAG"""
         try:
-            conversation = await self.get_conversation(session_id)
+            messages = await self.get_conversation(session_id)
 
-            if not conversation:
+            if not messages:
                 return ""
 
-            # Take the last N messages for context
-            recent_messages = conversation[-max_messages:]
-
-            context_lines = []
+            recent_messages = messages[-max_messages:] if len(
+                messages) > max_messages else messages
+            context_parts = []
             for msg in recent_messages:
-                role = msg["role"]
-                content = msg["content"]
-                context_lines.append(f"{role.capitalize()}: {content}")
+                role = "Human" if msg["role"] == "user" else "Assistant"
+                context_parts.append(f"{role}: {msg['content']}")
 
-            return "\n".join(context_lines)
+            return "\n".join(context_parts)
 
         except Exception as e:
             logger.error(f"Error getting conversation context: {str(e)}")
             return ""
 
-    async def _save_conversation(self, session_id: str, conversation: List[Dict[str, Any]]) -> None:
-        """Save conversation to file"""
-        try:
-            conversation_file = self._get_conversation_file(session_id)
-
-            with open(conversation_file, 'w', encoding='utf-8') as f:
-                json.dump(conversation, f, indent=2, ensure_ascii=False)
-
-        except Exception as e:
-            logger.error(f"Error saving conversation: {str(e)}")
-            raise
-
-    async def _is_conversation_expired(self, conversation_file: Path) -> bool:
-        """Check if a conversation file has expired"""
-        try:
-            stat = conversation_file.stat()
-            file_age = datetime.now() - datetime.fromtimestamp(stat.st_mtime)
-            return file_age > timedelta(hours=self.conversation_ttl_hours)
-        except Exception:
-            return False
-
     async def delete_conversation(self, session_id: str) -> None:
         """Delete a conversation session"""
         try:
-            conversation_file = self._get_conversation_file(session_id)
-            if conversation_file.exists():
-                conversation_file.unlink()
-                logger.info(f"Deleted conversation {session_id}")
+            async with database_service.get_session() as session:
+                result = await session.execute(
+                    select(Conversation).where(
+                        Conversation.session_id == session_id)
+                )
+                conversation = result.scalar_one_or_none()
+
+                if conversation:
+                    # Cascading delete will remove messages
+                    await session.delete(conversation)
+                    logger.info(f"Deleted conversation {session_id}")
+
         except Exception as e:
             logger.error(f"Error deleting conversation {session_id}: {str(e)}")
 
     async def cleanup_expired_conversations(self) -> int:
-        """Clean up expired conversations and return count of deleted files"""
+        """Clean up expired conversations and return count of deleted conversations"""
         try:
-            deleted_count = 0
+            expired_threshold = datetime.now(timezone.utc) - timedelta(hours=self.conversation_ttl_hours)
 
-            for conversation_file in self.conversations_dir.glob("*.json"):
-                if await self._is_conversation_expired(conversation_file):
-                    conversation_file.unlink()
-                    deleted_count += 1
+            async with database_service.get_session() as session:
+                # Find expired conversations
+                result = await session.execute(
+                    select(Conversation).where(
+                        Conversation.expires_at < datetime.now(timezone.utc)
+                    )
+                )
+                expired_conversations = result.scalars().all()
 
-            if deleted_count > 0:
-                logger.info(
-                    f"Cleaned up {deleted_count} expired conversations")
+                count = len(expired_conversations)
 
-            return deleted_count
+                if count > 0:
+                    await session.execute(
+                        delete(Conversation).where(
+                            Conversation.expires_at < datetime.now(timezone.utc)
+                        )
+                    )
+                    logger.info(f"Cleaned up {count} expired conversations")
+
+                return count
 
         except Exception as e:
-            logger.error(f"Error cleaning up expired conversations: {str(e)}")
+            logger.error(f"Error cleaning up conversations: {str(e)}")
             return 0
 
-    async def get_conversation_stats(self, session_id: str) -> Dict[str, Any]:
-        """Get statistics about a conversation"""
+    async def get_conversation_stats(self) -> Dict[str, int]:
+        """Get conversation statistics"""
         try:
-            conversation = await self.get_conversation(session_id)
+            async with database_service.get_session() as session:
+                conv_result = await session.execute(
+                    select(Conversation.id)
+                )
+                total_conversations = len(conv_result.scalars().all())
 
-            if not conversation:
+                msg_result = await session.execute(
+                    select(ConversationMessage.id)
+                )
+                total_messages = len(msg_result.scalars().all())
+
+                active_result = await session.execute(
+                    select(Conversation.id).where(
+                        Conversation.expires_at > datetime.now(timezone.utc)
+                    )
+                )
+                active_conversations = len(active_result.scalars().all())
+
                 return {
-                    "message_count": 0,
-                    "user_messages": 0,
-                    "assistant_messages": 0,
-                    "first_message": None,
-                    "last_message": None
+                    "total_conversations": total_conversations,
+                    "active_conversations": active_conversations,
+                    "total_messages": total_messages
                 }
-
-            user_messages = sum(
-                1 for msg in conversation if msg["role"] == "user")
-            assistant_messages = sum(
-                1 for msg in conversation if msg["role"] == "assistant")
-
-            return {
-                "message_count": len(conversation),
-                "user_messages": user_messages,
-                "assistant_messages": assistant_messages,
-                "first_message": conversation[0]["timestamp"] if conversation else None,
-                "last_message": conversation[-1]["timestamp"] if conversation else None
-            }
 
         except Exception as e:
             logger.error(f"Error getting conversation stats: {str(e)}")
-            return {}
+            return {"total_conversations": 0, "active_conversations": 0, "total_messages": 0}
+
+    async def _get_or_create_conversation(self, session, session_id: str,
+                                          knowledge_base_id: Optional[str] = None,
+                                          api_key: Optional[str] = None) -> Conversation:
+        """Get existing conversation or create new one"""
+        result = await session.execute(
+            select(Conversation).where(Conversation.session_id == session_id)
+        )
+        conversation = result.scalar_one_or_none()
+
+        if conversation:
+            return conversation
+
+        conversation = Conversation(
+            session_id=session_id,
+            knowledge_base_id=knowledge_base_id,
+            api_key=api_key,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=self.conversation_ttl_hours)
+        )
+        session.add(conversation)
+        await session.flush()
+        return conversation
+
+    async def _cleanup_conversation_messages(self, session, conversation_id: str) -> None:
+        """Remove old messages if conversation exceeds max length"""
+        result = await session.execute(
+            select(ConversationMessage)
+            .where(ConversationMessage.conversation_id == conversation_id)
+            .order_by(ConversationMessage.created_at.desc())
+        )
+        messages = result.scalars().all()
+
+        if len(messages) > self.max_conversation_length:
+            messages_to_delete = messages[self.max_conversation_length:]
+            for msg in messages_to_delete:
+                await session.delete(msg)
+
+    def _is_conversation_expired(self, conversation: Conversation) -> bool:
+        """Check if a conversation has expired"""
+        return datetime.now(timezone.utc) > conversation.expires_at
+
+
+conversation_service = ConversationService()

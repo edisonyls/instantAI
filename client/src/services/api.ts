@@ -24,9 +24,12 @@ export interface APIKey {
 export interface DocumentInfo {
   id: string;
   filename: string;
-  text_length: number;
+  knowledge_base_id: string;
   chunk_count: number;
-  upload_timestamp: string;
+  file_size?: number;
+  text_length?: number;
+  created_at: string;
+  updated_at: string;
   processing_status?: string;
 }
 
@@ -145,7 +148,8 @@ export async function getKnowledgeBase(id: string): Promise<{
 // Document Management
 export async function uploadDocuments(
   knowledgeBaseId: string,
-  files: File[]
+  files: File[],
+  apiKey: string
 ): Promise<any> {
   const formData = new FormData();
   files.forEach((file) => {
@@ -156,6 +160,9 @@ export async function uploadDocuments(
     `${API_BASE_URL}/api/knowledge-bases/${knowledgeBaseId}/documents`,
     {
       method: "POST",
+      headers: {
+        "X-API-Key": apiKey,
+      },
       body: formData,
     }
   );
