@@ -64,3 +64,13 @@ class PublicChatResponse(BaseModel):
     session_id: str = Field(..., description="Session ID for conversation tracking")
     usage: Dict[str, int] = Field(..., description="Usage statistics")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp") 
+
+
+class UpdateSystemSettingsRequest(BaseModel):
+    """Request model for updating system settings"""
+    max_retrieved_chunks: Optional[int] = Field(None, ge=1, le=50, description="Maximum number of chunks to retrieve for RAG context")
+
+class UpdateSystemSettingsResponse(BaseModel):
+    """Response model for system settings update"""
+    message: str
+    updated_settings: Dict[str, Any] 

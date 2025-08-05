@@ -104,6 +104,15 @@ export interface SystemInfo {
   };
 }
 
+export interface UpdateSystemSettingsRequest {
+  max_retrieved_chunks?: number;
+}
+
+export interface UpdateSystemSettingsResponse {
+  message: string;
+  updated_settings: { [key: string]: any };
+}
+
 // Knowledge Base Management
 export async function createKnowledgeBase(
   request: CreateKnowledgeBaseRequest
@@ -247,6 +256,23 @@ export async function getSystemInfo(): Promise<SystemInfo> {
 
   if (!response.ok) {
     throw new Error(`Failed to fetch system info: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// Update System Settings
+export async function updateSystemSettings(
+  request: UpdateSystemSettingsRequest
+): Promise<UpdateSystemSettingsResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/system-settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update system settings: ${response.statusText}`);
   }
 
   return response.json();

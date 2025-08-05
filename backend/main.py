@@ -17,7 +17,8 @@ try:
     from backend.config import settings
     from backend.models.api_models import (
         CreateKnowledgeBaseRequest,
-        PublicChatRequest, PublicChatResponse
+        PublicChatRequest, PublicChatResponse,
+        UpdateSystemSettingsRequest, UpdateSystemSettingsResponse
     )
     from backend.models.chat_models import ChatMessage, MessageRole
     from backend.services.database_service import database_service
@@ -30,7 +31,8 @@ except ImportError:
     from config import settings
     from models.api_models import (
         CreateKnowledgeBaseRequest,
-        PublicChatRequest, PublicChatResponse
+        PublicChatRequest, PublicChatResponse,
+        UpdateSystemSettingsRequest, UpdateSystemSettingsResponse
     )
     from models.chat_models import ChatMessage, MessageRole
     from services.database_service import database_service
@@ -513,6 +515,45 @@ async def get_system_info():
         logger.error(f"Error getting system info: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Error getting system info: {str(e)}")
+
+
+@app.put("/api/system-settings")
+async def update_system_settings(request: UpdateSystemSettingsRequest):
+    """Update system settings"""
+    try:
+        updated_settings = {}
+
+        # Update MAX_RETRIEVED_CHUNKS if provided
+        if request.max_retrieved_chunks is not None:
+            if not (1 <= request.max_retrieved_chunks <= 50):
+                raise HTTPException(
+                    status_code=400,
+                    detail="max_retrieved_chunks must be between 1 and 50"
+                )
+
+            settings.MAX_RETRIEVED_CHUNKS = request.max_retrieved_chunks
+            updated_settings["max_retrieved_chunks"] = request.max_retrieved_chunks
+
+            logger.info(
+                f"Updated MAX_RETRIEVED_CHUNKS to {request.max_retrieved_chunks}")
+
+        if not updated_settings:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid settings provided to update"
+            )
+
+        return UpdateSystemSettingsResponse(
+            message="Settings updated successfully",
+            updated_settings=updated_settings
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating system settings: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error updating system settings: {str(e)}")
 
 
 if __name__ == "__main__":
