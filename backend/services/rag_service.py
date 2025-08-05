@@ -51,7 +51,7 @@ class RAGService:
             raise
 
     async def process_document(self, text: str, filename: str, knowledge_base_id: str, file_size: Optional[int] = None) -> str:
-        """Process a document and store it with embeddings in PostgreSQL"""
+        """Process a document by creating embeddings and storing in PostgreSQL"""
         if not self.is_initialized:
             await self.initialize()
 
@@ -60,8 +60,8 @@ class RAGService:
                 document = Document(
                     knowledge_base_id=knowledge_base_id,
                     filename=filename,
-                    original_text=text,
-                    file_size=file_size
+                    file_size=file_size,
+                    text_length=len(text)
                 )
                 session.add(document)
                 await session.flush()
@@ -70,7 +70,6 @@ class RAGService:
 
                 # Preprocess text
                 processed_text = self.document_processor.preprocess_text(text)
-                document.processed_text = processed_text
 
                 # Chunk the text
                 chunks = self.document_processor.chunk_text(processed_text)
@@ -82,15 +81,21 @@ class RAGService:
                 # Store chunks with embeddings
                 chunk_count = 0
                 for i, chunk in enumerate(chunks):
+                    # Prepare metadata
+                    metadata = {
+                        'filename': filename,
+                        'start_char': chunk['start_char'],
+                        'end_char': chunk['end_char'],
+                        'length': chunk['length']
+                    }
+                    
                     chunk_record = DocumentChunk(
                         document_id=document.id,
                         knowledge_base_id=knowledge_base_id,
                         chunk_index=chunk['chunk_index'],
                         content=chunk['text'],
-                        start_char=chunk['start_char'],
-                        end_char=chunk['end_char'],
-                        length=chunk['length'],
-                        embedding=embeddings[i].tolist()
+                        embedding=embeddings[i].tolist(),
+                        chunk_metadata=str(metadata)
                     )
                     session.add(chunk_record)
                     chunk_count += 1
@@ -140,7 +145,7 @@ class RAGService:
                 # Build the query using string formatting (less ideal but working approach)
                 base_query = f"""
                 SELECT dc.id, dc.document_id, dc.knowledge_base_id, dc.chunk_index, 
-                       dc.content, dc.start_char, dc.end_char, dc.length, dc.created_at,
+                       dc.content, dc.chunk_metadata, dc.created_at,
                        d.filename,
                        1 - (dc.embedding <=> '{vector_str}'::vector) as similarity
                 FROM document_chunks dc
@@ -164,17 +169,22 @@ class RAGService:
 
                 context_chunks = []
                 for row in rows:
+                    # Parse metadata if available
+                    metadata = {'filename': row.filename}
+                    if row.chunk_metadata:
+                        try:
+                            import ast
+                            parsed_metadata = ast.literal_eval(row.chunk_metadata)
+                            metadata.update(parsed_metadata)
+                        except:
+                            pass
+                    
                     context_chunk = ContextChunk(
                         content=row.content,
                         document_id=str(row.document_id),
                         chunk_index=row.chunk_index,
                         similarity_score=float(row.similarity),
-                        metadata={
-                            'filename': row.filename,
-                            'start_char': row.start_char,
-                            'end_char': row.end_char,
-                            'length': row.length
-                        }
+                        metadata=metadata
                     )
                     context_chunks.append(context_chunk)
 
@@ -240,6 +250,7 @@ class RAGService:
                     knowledge_base_id=str(document.knowledge_base_id),
                     chunk_count=document.chunk_count,
                     file_size=document.file_size,
+                    text_length=document.text_length,
                     created_at=document.created_at,
                     updated_at=document.updated_at
                 )
@@ -265,7 +276,7 @@ class RAGService:
                         knowledge_base_id=str(doc.knowledge_base_id),
                         chunk_count=doc.chunk_count,
                         file_size=doc.file_size,
-                        text_length=len(doc.processed_text) if doc.processed_text else len(doc.original_text) if doc.original_text else 0,
+                        text_length=doc.text_length,
                         created_at=doc.created_at,
                         updated_at=doc.updated_at
                     )

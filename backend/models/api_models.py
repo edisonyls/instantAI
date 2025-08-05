@@ -66,6 +66,11 @@ class PublicChatResponse(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp") 
 
 
+class TestAPIKeyRequest(BaseModel):
+    """Request model for testing API key validity"""
+    api_key: str = Field(..., description="API key to test")
+
+
 class UpdateSystemSettingsRequest(BaseModel):
     """Request model for updating system settings"""
     max_retrieved_chunks: Optional[int] = Field(None, ge=1, le=50, description="Maximum number of chunks to retrieve for RAG context")

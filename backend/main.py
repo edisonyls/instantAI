@@ -18,6 +18,7 @@ try:
     from backend.models.api_models import (
         CreateKnowledgeBaseRequest,
         PublicChatRequest, PublicChatResponse,
+        TestAPIKeyRequest,
         UpdateSystemSettingsRequest, UpdateSystemSettingsResponse
     )
     from backend.models.chat_models import ChatMessage, MessageRole
@@ -32,6 +33,7 @@ except ImportError:
     from models.api_models import (
         CreateKnowledgeBaseRequest,
         PublicChatRequest, PublicChatResponse,
+        TestAPIKeyRequest,
         UpdateSystemSettingsRequest, UpdateSystemSettingsResponse
     )
     from models.chat_models import ChatMessage, MessageRole
@@ -339,8 +341,11 @@ async def public_chat_api(request: PublicChatRequest):
         validation_result = await validate_api_key_from_body(request.api_key)
         knowledge_base_id, api_key = validation_result
 
+        # Generate session_id if not provided
+        session_id = request.session_id or str(uuid.uuid4())
+
         conversation_context = await conversation_service.get_conversation_context(
-            request.session_id, max_messages=5
+            session_id, max_messages=5
         )
 
         context_chunks = await rag_service.retrieve_context(
@@ -364,7 +369,7 @@ Answer the user's question based on the provided context. If the context doesn't
         user_message = ChatMessage(
             role=MessageRole.USER, content=request.message)
         await conversation_service.add_message(
-            request.session_id, user_message, knowledge_base_id, api_key
+            session_id, user_message, knowledge_base_id, api_key
         )
 
         # Generate response using Ollama
@@ -378,12 +383,12 @@ Answer the user's question based on the provided context. If the context doesn't
         assistant_message = ChatMessage(
             role=MessageRole.ASSISTANT, content=response)
         await conversation_service.add_message(
-            request.session_id, assistant_message, knowledge_base_id, api_key
+            session_id, assistant_message, knowledge_base_id, api_key
         )
 
         return PublicChatResponse(
             response=response,
-            session_id=request.session_id,
+            session_id=session_id,
             usage={"messages": 1, "tokens": len(response)},
             timestamp=datetime.now()
         )
@@ -394,6 +399,33 @@ Answer the user's question based on the provided context. If the context doesn't
         logger.error(f"Error in public chat: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Error processing chat: {str(e)}")
+
+
+@app.post("/api/public/test-key")
+async def test_api_key(request: TestAPIKeyRequest):
+    """Test API key validity without incrementing usage count"""
+    try:
+        if not request.api_key:
+            raise HTTPException(status_code=401, detail="API key required")
+
+        result = await api_key_service.test_api_key(request.api_key)
+        if not result:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        knowledge_base_id, api_key = result
+        
+        return {
+            "valid": True,
+            "knowledge_base_id": knowledge_base_id,
+            "message": "API key is valid"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error testing API key: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error testing API key: {str(e)}")
 
 
 # Conversation Management
