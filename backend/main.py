@@ -16,8 +16,8 @@ import aiofiles
 try:
     from backend.config import settings
     from backend.models.api_models import (
-        CreateKnowledgeBaseRequest, CreateKnowledgeBaseResponse,
-        DocumentUploadResponse, PublicChatRequest, PublicChatResponse
+        CreateKnowledgeBaseRequest,
+        PublicChatRequest, PublicChatResponse
     )
     from backend.models.chat_models import ChatMessage, MessageRole
     from backend.services.database_service import database_service
@@ -29,8 +29,8 @@ try:
 except ImportError:
     from config import settings
     from models.api_models import (
-        CreateKnowledgeBaseRequest, CreateKnowledgeBaseResponse,
-        DocumentUploadResponse, PublicChatRequest, PublicChatResponse
+        CreateKnowledgeBaseRequest,
+        PublicChatRequest, PublicChatResponse
     )
     from models.chat_models import ChatMessage, MessageRole
     from services.database_service import database_service
@@ -205,9 +205,6 @@ async def delete_knowledge_base(kb_id: str):
             status_code=500, detail=f"Error deleting knowledge base: {str(e)}")
 
 
-
-
-
 # Document Management
 @app.post("/api/knowledge-bases/{kb_id}/documents")
 async def upload_documents(
@@ -300,9 +297,6 @@ async def upload_documents(
         "total_errors": len(errors),
         "message": f"Processed {len(uploaded_documents)} documents successfully"
     }
-
-
-
 
 
 @app.delete("/api/knowledge-bases/{kb_id}/documents/{document_id}")
@@ -400,9 +394,6 @@ Answer the user's question based on the provided context. If the context doesn't
             status_code=500, detail=f"Error processing chat: {str(e)}")
 
 
-
-
-
 # Conversation Management
 
 @app.get("/api/conversations/{session_id}")
@@ -415,9 +406,6 @@ async def get_conversation(session_id: str):
         logger.error(f"Error getting conversation: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Error getting conversation: {str(e)}")
-
-
-
 
 
 @app.post("/api/conversations/cleanup")
@@ -444,7 +432,8 @@ async def health_check():
         db_healthy = await database_service.health_check()
 
         # Check Ollama service
-        ollama_healthy = await ollama_service.health_check()
+        ollama_health = await ollama_service.health_check()
+        ollama_healthy = ollama_health.get("status") == "healthy"
 
         status = "healthy" if (db_healthy and ollama_healthy) else "unhealthy"
 
@@ -452,8 +441,9 @@ async def health_check():
             "status": status,
             "services": {
                 "rag": "healthy" if db_healthy else "unhealthy",  # Frontend expects 'rag' service
-                "ollama": "healthy" if ollama_healthy else "unhealthy"
+                "ollama": "healthy" if ollama_healthy else ("model_downloading" if ollama_health.get("status") == "model_not_ready" else "unhealthy")
             },
+            "ollama_details": ollama_health,
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
@@ -482,6 +472,9 @@ async def get_system_info():
         total_documents = sum(kb.total_documents for kb in knowledge_bases)
         total_chunks = sum(kb.total_chunks for kb in knowledge_bases)
 
+        # Check Ollama status for AI configuration
+        ollama_health = await ollama_service.health_check()
+
         # Format response for frontend expectations
         return {
             "ai_configuration": {
@@ -490,7 +483,10 @@ async def get_system_info():
                 "max_context_length": 4096,  # Default context length for most models
                 "similarity_threshold": settings.SIMILARITY_THRESHOLD,
                 "max_retrieved_chunks": settings.MAX_RETRIEVED_CHUNKS,
-                "embedding_model": settings.EMBEDDING_MODEL
+                "embedding_model": settings.EMBEDDING_MODEL,
+                "ollama_status": ollama_health.get("status", "unknown"),
+                "model_ready": ollama_health.get("model_ready", False),
+                "available_models": ollama_health.get("available_models", [])
             },
             "document_processing": {
                 "chunk_size": settings.CHUNK_SIZE,

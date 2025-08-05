@@ -21,13 +21,16 @@ class KnowledgeBase(Base):
     total_documents = Column(Integer, default=0)
     total_chunks = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    documents = relationship("Document", back_populates="knowledge_base", cascade="all, delete-orphan")
-    document_chunks = relationship("DocumentChunk", back_populates="knowledge_base", cascade="all, delete-orphan")
-    api_keys = relationship("APIKey", back_populates="knowledge_base", cascade="all, delete-orphan")
-
+    documents = relationship(
+        "Document", back_populates="knowledge_base", cascade="all, delete-orphan")
+    document_chunks = relationship(
+        "DocumentChunk", back_populates="knowledge_base", cascade="all, delete-orphan")
+    api_keys = relationship(
+        "APIKey", back_populates="knowledge_base", cascade="all, delete-orphan")
 
 
 class Document(Base):
@@ -36,16 +39,19 @@ class Document(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     filename = Column(String(255), nullable=False)
-    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey(
+        "knowledge_bases.id", ondelete="CASCADE"), nullable=False)
     file_size = Column(Integer)
     text_length = Column(Integer)
     chunk_count = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), onupdate=func.now())
 
     # Relationships
     knowledge_base = relationship("KnowledgeBase", back_populates="documents")
-    chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+    chunks = relationship(
+        "DocumentChunk", back_populates="document", cascade="all, delete-orphan")
 
 
 class DocumentChunk(Base):
@@ -53,17 +59,20 @@ class DocumentChunk(Base):
     __tablename__ = "document_chunks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
-    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(UUID(as_uuid=True), ForeignKey(
+        "documents.id", ondelete="CASCADE"), nullable=False)
+    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey(
+        "knowledge_bases.id", ondelete="CASCADE"), nullable=False)
     chunk_index = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
-    embedding = Column(Vector(384))  # Using 384-dimensional embeddings for sentence-transformers
-    metadata = Column(Text)  # JSON metadata as text
+    embedding = Column(Vector(384))
+    chunk_metadata = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     document = relationship("Document", back_populates="chunks")
-    knowledge_base = relationship("KnowledgeBase", back_populates="document_chunks")
+    knowledge_base = relationship(
+        "KnowledgeBase", back_populates="document_chunks")
 
 
 class APIKey(Base):
@@ -73,13 +82,15 @@ class APIKey(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     key = Column(String(255), unique=True, nullable=False)
     name = Column(String(255), nullable=False)
-    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey(
+        "knowledge_bases.id", ondelete="CASCADE"), nullable=False)
     is_active = Column(Boolean, default=True)
     usage_count = Column(Integer, default=0)
     rate_limit = Column(Integer, default=100)
     last_used = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), onupdate=func.now())
 
     # Relationships
     knowledge_base = relationship("KnowledgeBase", back_populates="api_keys")
@@ -92,14 +103,18 @@ class Conversation(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id = Column(String(255), nullable=False, index=True)
-    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="CASCADE"))
-    api_key = Column(String(255), ForeignKey("api_keys.key", ondelete="CASCADE"))
+    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey(
+        "knowledge_bases.id", ondelete="CASCADE"))
+    api_key = Column(String(255), ForeignKey(
+        "api_keys.key", ondelete="CASCADE"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), onupdate=func.now())
 
     # Relationships
     api_key_obj = relationship("APIKey", back_populates="conversations")
-    messages = relationship("ConversationMessage", back_populates="conversation", cascade="all, delete-orphan")
+    messages = relationship(
+        "ConversationMessage", back_populates="conversation", cascade="all, delete-orphan")
 
 
 class ConversationMessage(Base):
@@ -107,15 +122,17 @@ class ConversationMessage(Base):
     __tablename__ = "conversation_messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey(
+        "conversations.id", ondelete="CASCADE"), nullable=False)
     role = Column(String(20), nullable=False)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Add constraint for role values
     __table_args__ = (
-        CheckConstraint("role IN ('user', 'assistant', 'system')", name='valid_role'),
+        CheckConstraint(
+            "role IN ('user', 'assistant', 'system')", name='valid_role'),
     )
 
     # Relationships
-    conversation = relationship("Conversation", back_populates="messages") 
+    conversation = relationship("Conversation", back_populates="messages")

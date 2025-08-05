@@ -6,7 +6,12 @@ import {
   Brain,
   RefreshCw,
 } from "lucide-react";
-import { getHealthStatus, HealthStatus, getSystemInfo, SystemInfo } from "../services/api";
+import {
+  getHealthStatus,
+  HealthStatus,
+  getSystemInfo,
+  SystemInfo,
+} from "../services/api";
 
 export const Settings: React.FC = () => {
   const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
@@ -76,11 +81,13 @@ export const Settings: React.FC = () => {
           onClick={refreshAll}
           disabled={refreshing}
           className={`btn btn-outline btn-sm flex items-center space-x-2 ${
-            refreshing ? 'opacity-75 cursor-not-allowed' : ''
+            refreshing ? "opacity-75 cursor-not-allowed" : ""
           }`}
         >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          <span>{refreshing ? 'Refreshing...' : 'Refresh All'}</span>
+          <RefreshCw
+            className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
+          />
+          <span>{refreshing ? "Refreshing..." : "Refresh All"}</span>
         </button>
       </div>
 
@@ -132,10 +139,16 @@ export const Settings: React.FC = () => {
                         className={`px-2 py-1 rounded-full text-xs font-medium ${
                           status === "healthy" || status.status === "healthy"
                             ? "bg-green-100 text-green-800"
-                            : "bg-red-100 text-red-800"
+                            : status === "model_downloading"
+                              ? "bg-yellow-100 text-yellow-800"
+                              : "bg-red-100 text-red-800"
                         }`}
                       >
-                        {typeof status === "string" ? status : status.status}
+                        {typeof status === "string"
+                          ? status === "model_downloading"
+                            ? "Model Downloading..."
+                            : status
+                          : status.status}
                       </span>
                     </div>
                   )
@@ -176,7 +189,39 @@ export const Settings: React.FC = () => {
                   {systemInfo.ai_configuration.ollama_model}
                 </p>
               </div>
-              
+
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Model Status
+                </label>
+                <div className="flex items-center space-x-2">
+                  <span
+                    className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      systemInfo.ai_configuration.model_ready
+                        ? "bg-green-100 text-green-800"
+                        : systemInfo.ai_configuration.ollama_status ===
+                            "model_not_ready"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-red-100 text-red-800"
+                    }`}
+                  >
+                    {systemInfo.ai_configuration.model_ready
+                      ? "Ready"
+                      : systemInfo.ai_configuration.ollama_status ===
+                          "model_not_ready"
+                        ? "Downloading..."
+                        : "Error"}
+                  </span>
+                  {!systemInfo.ai_configuration.model_ready &&
+                    systemInfo.ai_configuration.ollama_status ===
+                      "model_not_ready" && (
+                      <span className="text-xs text-gray-500">
+                        Model is being downloaded
+                      </span>
+                    )}
+                </div>
+              </div>
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Ollama Host
@@ -185,16 +230,17 @@ export const Settings: React.FC = () => {
                   {systemInfo.ai_configuration.ollama_host}
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Max Context Length
                 </label>
                 <p className="text-gray-900 font-mono text-sm">
-                  {systemInfo.ai_configuration.max_context_length.toLocaleString()} characters
+                  {systemInfo.ai_configuration.max_context_length.toLocaleString()}{" "}
+                  characters
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Similarity Threshold
@@ -203,7 +249,7 @@ export const Settings: React.FC = () => {
                   {systemInfo.ai_configuration.similarity_threshold}
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Max Retrieved Chunks
@@ -212,7 +258,7 @@ export const Settings: React.FC = () => {
                   {systemInfo.ai_configuration.max_retrieved_chunks}
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Embedding Model
@@ -249,19 +295,21 @@ export const Settings: React.FC = () => {
                   Chunk Size
                 </label>
                 <p className="text-gray-900 font-mono text-sm">
-                  {systemInfo.document_processing.chunk_size.toLocaleString()} characters
+                  {systemInfo.document_processing.chunk_size.toLocaleString()}{" "}
+                  characters
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Chunk Overlap
                 </label>
                 <p className="text-gray-900 font-mono text-sm">
-                  {systemInfo.document_processing.chunk_overlap.toLocaleString()} characters
+                  {systemInfo.document_processing.chunk_overlap.toLocaleString()}{" "}
+                  characters
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Max File Size
@@ -301,7 +349,7 @@ export const Settings: React.FC = () => {
                   {systemInfo.storage.upload_directory}
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Temporary Directory
@@ -310,7 +358,7 @@ export const Settings: React.FC = () => {
                   {systemInfo.storage.temp_directory}
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   ChromaDB Path
@@ -319,7 +367,7 @@ export const Settings: React.FC = () => {
                   {systemInfo.storage.chroma_db_path}
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Vector DB Collection
@@ -359,7 +407,7 @@ export const Settings: React.FC = () => {
                   {systemInfo.security.access_token_expire_minutes} minutes
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Log Level
@@ -368,7 +416,7 @@ export const Settings: React.FC = () => {
                   {systemInfo.logging.log_level}
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Log File
@@ -377,7 +425,7 @@ export const Settings: React.FC = () => {
                   {systemInfo.logging.log_file}
                 </p>
               </div>
-              
+
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   CORS Origins
@@ -399,8 +447,16 @@ export const Settings: React.FC = () => {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-start">
           <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            <svg
+              className="h-5 w-5 text-blue-400"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                clipRule="evenodd"
+              />
             </svg>
           </div>
           <div className="ml-3">
@@ -408,8 +464,9 @@ export const Settings: React.FC = () => {
               System Configuration
             </h3>
             <p className="mt-1 text-sm text-blue-700">
-              This information is currently read-only and reflects the backend configuration. 
-              To modify these values, update the configuration file or environment variables and restart the backend service.
+              This information is currently read-only and reflects the backend
+              configuration. To modify these values, update the configuration
+              file or environment variables and restart the backend service.
             </p>
           </div>
         </div>

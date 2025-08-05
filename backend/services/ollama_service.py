@@ -232,12 +232,26 @@ Answer:"""
             async with self.session.get(f"{self.base_url}/api/tags") as response:
                 if response.status == 200:
                     data = await response.json()
-                    return {
-                        "status": "healthy",
-                        "current_model": self.model,
-                        "available_models": [model['name'] for model in data.get('models', [])],
-                        "ollama_host": self.base_url
-                    }
+                    available_models = [model['name'] for model in data.get('models', [])]
+                    
+                    # Check if the configured model is available
+                    if self.model in available_models:
+                        return {
+                            "status": "healthy",
+                            "current_model": self.model,
+                            "available_models": available_models,
+                            "ollama_host": self.base_url,
+                            "model_ready": True
+                        }
+                    else:
+                        return {
+                            "status": "model_not_ready",
+                            "current_model": self.model,
+                            "available_models": available_models,
+                            "ollama_host": self.base_url,
+                            "model_ready": False,
+                            "error": f"Model {self.model} is not available. Available models: {available_models}"
+                        }
                 else:
                     return {"status": "unhealthy", "error": f"Server returned status {response.status}"}
 

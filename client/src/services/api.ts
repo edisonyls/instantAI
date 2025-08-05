@@ -78,6 +78,9 @@ export interface SystemInfo {
     similarity_threshold: number;
     max_retrieved_chunks: number;
     embedding_model: string;
+    ollama_status: string;
+    model_ready: boolean;
+    available_models: string[];
   };
   document_processing: {
     chunk_size: number;
