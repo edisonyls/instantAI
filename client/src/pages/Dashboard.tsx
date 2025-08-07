@@ -13,7 +13,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { cn } from "../utils/cn";
-import { uploadDocuments, deleteKnowledgeBase } from "../services/api";
+import { uploadDocuments, deleteKnowledgeBase, deleteDocument as deleteDocumentAPI } from "../services/api";
 
 interface KnowledgeBase {
   id: string;
@@ -192,19 +192,14 @@ export const Dashboard: React.FC = () => {
   const deleteDocument = async (docId: string) => {
     if (
       !selectedKb ||
+      !apiKey ||
       !window.confirm("Are you sure you want to delete this document?")
     )
       return;
 
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/knowledge-bases/${selectedKb.id}/documents/${docId}`,
-        { method: "DELETE" }
-      );
-
-      if (response.ok) {
-        await selectKnowledgeBase(selectedKb);
-      }
+      await deleteDocumentAPI(selectedKb.id, docId, apiKey.key);
+      await selectKnowledgeBase(selectedKb);
     } catch (error) {
       console.error("Error deleting document:", error);
     }

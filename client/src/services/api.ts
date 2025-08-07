@@ -188,12 +188,16 @@ export async function uploadDocuments(
 
 export async function deleteDocument(
   knowledgeBaseId: string,
-  documentId: string
+  documentId: string,
+  apiKey: string
 ): Promise<void> {
   const response = await fetch(
     `${API_BASE_URL}/api/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`,
     {
       method: "DELETE",
+      headers: {
+        "X-API-Key": apiKey,
+      },
     }
   );
 
