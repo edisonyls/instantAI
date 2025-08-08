@@ -1,7 +1,7 @@
-from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, ForeignKey, CheckConstraint
+from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, ForeignKey, CheckConstraint, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 import uuid
@@ -138,3 +138,20 @@ class ConversationMessage(Base):
 
     # Relationships
     conversation = relationship("Conversation", back_populates="messages")
+
+
+class AgentSettings(Base):
+    """Per-agent settings stored as JSONB config"""
+    __tablename__ = "agent_settings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey(
+        "knowledge_bases.id", ondelete="CASCADE"), nullable=False, unique=True)
+    agent_type = Column(String(50), nullable=False)
+    config = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    knowledge_base = relationship("KnowledgeBase")

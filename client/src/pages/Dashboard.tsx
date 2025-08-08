@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useDropzone } from "react-dropzone";
 import {
   Upload,
@@ -13,6 +13,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { cn } from "../utils/cn";
+import { getAgentSettings, updateAgentSettings } from "../services/api";
 import {
   uploadDocuments,
   deleteKnowledgeBase,
@@ -63,6 +64,13 @@ export const Dashboard: React.FC = () => {
   const [kbName, setKbName] = useState("");
   const [kbDescription, setKbDescription] = useState("");
   const [kbAgentType, setKbAgentType] = useState<string>("data_processing");
+  const [agentSettings, setAgentSettings] = useState<any>({});
+  const [globalDefaults, setGlobalDefaults] = useState<any>({});
+  const [showUploadConfig, setShowUploadConfig] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploadChunkSize, setUploadChunkSize] = useState<number | "">("");
+  const [uploadChunkOverlap, setUploadChunkOverlap] = useState<number | "">("");
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchKnowledgeBases = useCallback(async () => {
     try {
@@ -88,6 +96,21 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     fetchKnowledgeBases();
   }, [fetchKnowledgeBases]);
+
+  useEffect(() => {
+    // Fetch global defaults for document processing to use as prompts' defaults
+    (async () => {
+      try {
+        const system = await (
+          await fetch("http://localhost:8000/api/system-info")
+        ).json();
+        setGlobalDefaults({
+          chunk_size: system?.document_processing?.chunk_size,
+          chunk_overlap: system?.document_processing?.chunk_overlap,
+        });
+      } catch {}
+    })();
+  }, []);
 
   const selectKnowledgeBase = async (kb: KnowledgeBase) => {
     setSelectedKb(kb);
@@ -116,6 +139,17 @@ export const Dashboard: React.FC = () => {
             }
           : prev
       );
+      try {
+        const settings = await getAgentSettings(kb.id);
+        // Use saved config when present, else fallback to defaults provided in KB details
+        const incoming =
+          settings.config && Object.keys(settings.config).length > 0
+            ? settings.config
+            : data.agent_settings?.config || {};
+        setAgentSettings(incoming);
+      } catch (e) {
+        setAgentSettings(data.agent_settings?.config || {});
+      }
     } catch (error) {
       console.error("Error fetching knowledge base details:", error);
     } finally {
@@ -166,6 +200,19 @@ export const Dashboard: React.FC = () => {
     }
 
     try {
+      if ((selectedKb.agent_type ?? "data_processing") === "data_processing") {
+        // Open modal to collect upload-time chunking parameters
+        const defaultChunkSize =
+          agentSettings.chunk_size ?? globalDefaults.chunk_size ?? 800;
+        const defaultOverlap =
+          agentSettings.chunk_overlap ?? globalDefaults.chunk_overlap ?? 100;
+        setUploadChunkSize(defaultChunkSize);
+        setUploadChunkOverlap(defaultOverlap);
+        setPendingFiles(acceptedFiles);
+        setShowUploadConfig(true);
+        return;
+      }
+
       const result = await uploadDocuments(
         selectedKb.id,
         acceptedFiles,
@@ -197,6 +244,7 @@ export const Dashboard: React.FC = () => {
         [".docx"],
     },
     maxSize: 10 * 1024 * 1024,
+    noClick: true,
   });
 
   const copyApiKey = () => {
@@ -437,6 +485,173 @@ export const Dashboard: React.FC = () => {
                 )}
               </div>
 
+              {/* Agent Settings Panel */}
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold mb-4">Agent Settings</h2>
+                {(selectedKb?.agent_type ?? "data_processing") === "mcp" ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        MCP Server URL
+                      </label>
+                      <input
+                        className="input w-full"
+                        value={agentSettings.mcp_server_url || ""}
+                        onChange={(e) =>
+                          setAgentSettings({
+                            ...agentSettings,
+                            mcp_server_url: e.target.value,
+                          })
+                        }
+                        placeholder="http://localhost:4000"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Allowed Tools (comma-separated)
+                      </label>
+                      <input
+                        className="input w-full"
+                        value={agentSettings.allowed_tools || ""}
+                        onChange={(e) =>
+                          setAgentSettings({
+                            ...agentSettings,
+                            allowed_tools: e.target.value,
+                          })
+                        }
+                        placeholder="search,fetch,db"
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        className={cn(
+                          "px-4 py-2 rounded-md text-white",
+                          "bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400",
+                          "disabled:opacity-50 disabled:cursor-not-allowed"
+                        )}
+                        onClick={async (e) => {
+                          const btn = e.currentTarget as HTMLButtonElement;
+                          if (!selectedKb) return;
+                          btn.disabled = true;
+                          const originalText = btn.textContent;
+                          btn.textContent = "Saving...";
+                          try {
+                            await updateAgentSettings(
+                              selectedKb.id,
+                              agentSettings
+                            );
+                            btn.textContent = "Saved";
+                            setTimeout(() => {
+                              btn.textContent = originalText || "Save Settings";
+                              btn.disabled = false;
+                            }, 1000);
+                          } catch (err) {
+                            btn.textContent = "Error";
+                            setTimeout(() => {
+                              btn.textContent = originalText || "Save Settings";
+                              btn.disabled = false;
+                            }, 1000);
+                          }
+                        }}
+                      >
+                        Save Settings
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Max Retrieved Chunks
+                        </label>
+                        <input
+                          type="number"
+                          className="input w-full"
+                          value={agentSettings.max_retrieved_chunks ?? ""}
+                          onChange={(e) =>
+                            setAgentSettings(
+                              ({
+                                chunk_size,
+                                chunk_overlap,
+                                ...rest
+                              }: any) => ({
+                                ...rest,
+                                max_retrieved_chunks:
+                                  Number(e.target.value) || undefined,
+                              })
+                            )
+                          }
+                          placeholder="e.g. 8"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Similarity Threshold (0-1)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="1"
+                          className="input w-full"
+                          value={agentSettings.similarity_threshold ?? ""}
+                          onChange={(e) =>
+                            setAgentSettings(
+                              ({
+                                chunk_size,
+                                chunk_overlap,
+                                ...rest
+                              }: any) => ({
+                                ...rest,
+                                similarity_threshold:
+                                  Number(e.target.value) || undefined,
+                              })
+                            )
+                          }
+                          placeholder="e.g. 0.3"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        className={cn(
+                          "px-4 py-2 rounded-md text-white",
+                          "bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400",
+                          "disabled:opacity-50 disabled:cursor-not-allowed"
+                        )}
+                        onClick={async (e) => {
+                          const btn = e.currentTarget as HTMLButtonElement;
+                          if (!selectedKb) return;
+                          btn.disabled = true;
+                          const originalText = btn.textContent;
+                          btn.textContent = "Saving...";
+                          try {
+                            await updateAgentSettings(
+                              selectedKb.id,
+                              agentSettings
+                            );
+                            btn.textContent = "Saved";
+                            setTimeout(() => {
+                              btn.textContent = originalText || "Save Settings";
+                              btn.disabled = false;
+                            }, 1000);
+                          } catch (err) {
+                            btn.textContent = "Error";
+                            setTimeout(() => {
+                              btn.textContent = originalText || "Save Settings";
+                              btn.disabled = false;
+                            }, 1000);
+                          }
+                        }}
+                      >
+                        Save Settings
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Documents Section (hidden for MCP agents) */}
               {(selectedKb?.agent_type ?? "data_processing") !== "mcp" && (
                 <div className="bg-white rounded-lg shadow-sm border">
@@ -451,6 +666,32 @@ export const Dashboard: React.FC = () => {
                     {/* Upload Area */}
                     <div
                       {...getRootProps()}
+                      onClick={() => {
+                        if (
+                          (selectedKb?.agent_type ?? "data_processing") !==
+                          "mcp"
+                        ) {
+                          const defaultChunkSize =
+                            agentSettings.chunk_size ??
+                            globalDefaults.chunk_size ??
+                            800;
+                          const defaultOverlap =
+                            agentSettings.chunk_overlap ??
+                            globalDefaults.chunk_overlap ??
+                            100;
+                          setUploadChunkSize(defaultChunkSize);
+                          setUploadChunkOverlap(defaultOverlap);
+                          setPendingFiles([]);
+                          setShowUploadConfig(true);
+                        } else {
+                          // For MCP, allow direct file selection (no modal)
+                          const input =
+                            document.querySelector<HTMLInputElement>(
+                              "#hidden-file-input"
+                            );
+                          input?.click();
+                        }
+                      }}
                       className={cn(
                         "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
                         isDragActive
@@ -458,7 +699,7 @@ export const Dashboard: React.FC = () => {
                           : "border-gray-300 hover:border-gray-400"
                       )}
                     >
-                      <input {...getInputProps()} />
+                      <input id="hidden-file-input" {...getInputProps()} />
                       <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                       <p className="text-gray-600">
                         {isDragActive
@@ -614,6 +855,135 @@ export const Dashboard: React.FC = () => {
                 }`}
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Upload Configuration Modal */}
+      {showUploadConfig && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+            <h3 className="text-xl font-semibold mb-6 text-gray-900">
+              Upload Settings
+            </h3>
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Chunk Size
+                </label>
+                <input
+                  type="number"
+                  className="input w-full"
+                  value={uploadChunkSize}
+                  onChange={(e) =>
+                    setUploadChunkSize(Number(e.target.value) || "")
+                  }
+                  placeholder="e.g. 800"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Chunk Overlap
+                </label>
+                <input
+                  type="number"
+                  className="input w-full"
+                  value={uploadChunkOverlap}
+                  onChange={(e) =>
+                    setUploadChunkOverlap(Number(e.target.value) || "")
+                  }
+                  placeholder="e.g. 100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Files
+                </label>
+                <div className="flex items-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => uploadInputRef.current?.click()}
+                    className="btn btn-outline"
+                  >
+                    Choose Files
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    {pendingFiles.length > 0
+                      ? `${pendingFiles.length} selected`
+                      : "No files selected"}
+                  </span>
+                </div>
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  multiple
+                  accept=".txt, .docx, text/plain, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = e.target.files
+                      ? Array.from(e.target.files)
+                      : [];
+                    setPendingFiles(files);
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-8">
+              <button
+                onClick={() => {
+                  setShowUploadConfig(false);
+                  setPendingFiles([]);
+                }}
+                className="btn btn-outline px-5 py-2.5 min-w-[90px]"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={pendingFiles.length === 0}
+                onClick={async () => {
+                  if (!selectedKb || !apiKey) return;
+                  const parsedSize = Number(uploadChunkSize);
+                  const parsedOverlap = Number(uploadChunkOverlap);
+                  if (!Number.isFinite(parsedSize) || parsedSize <= 0) {
+                    alert("Invalid chunk size");
+                    return;
+                  }
+                  if (!Number.isFinite(parsedOverlap) || parsedOverlap < 0) {
+                    alert("Invalid chunk overlap");
+                    return;
+                  }
+                  try {
+                    const result = await uploadDocuments(
+                      selectedKb.id,
+                      pendingFiles,
+                      apiKey.key,
+                      { chunk_size: parsedSize, chunk_overlap: parsedOverlap }
+                    );
+                    setShowUploadConfig(false);
+                    setPendingFiles([]);
+                    await selectKnowledgeBase(selectedKb);
+                    if (result.errors && result.errors.length > 0) {
+                      const errorMessages = result.errors
+                        .map((err: any) => `${err.filename}: ${err.error}`)
+                        .join("\n");
+                      alert(`Some files failed to upload:\n${errorMessages}`);
+                    } else {
+                      alert(
+                        `Successfully uploaded ${result.total_uploaded} document(s)`
+                      );
+                    }
+                  } catch (error) {
+                    console.error("Error uploading documents:", error);
+                    alert(
+                      `Failed to upload documents: ${error instanceof Error ? error.message : "Unknown error"}`
+                    );
+                  }
+                }}
+                className="btn btn-primary px-5 py-2.5 min-w-[90px]"
+              >
+                Upload
               </button>
             </div>
           </div>

@@ -74,6 +74,16 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Per-agent settings table
+CREATE TABLE IF NOT EXISTS agent_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    knowledge_base_id UUID UNIQUE REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    agent_type VARCHAR(50) NOT NULL,
+    config JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id ON document_chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_document_chunks_knowledge_base_id ON document_chunks(knowledge_base_id);

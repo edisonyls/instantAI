@@ -115,6 +115,42 @@ export interface UpdateSystemSettingsResponse {
   updated_settings: { [key: string]: any };
 }
 
+export interface AgentSettings {
+  knowledge_base_id: string;
+  agent_type: string;
+  config: { [key: string]: any };
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function getAgentSettings(kbId: string): Promise<AgentSettings> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/knowledge-bases/${kbId}/settings`
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch agent settings: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function updateAgentSettings(
+  kbId: string,
+  config: { [key: string]: any }
+): Promise<AgentSettings> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/knowledge-bases/${kbId}/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to update agent settings: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 // Knowledge Base Management
 export async function createKnowledgeBase(
   request: CreateKnowledgeBaseRequest
@@ -163,12 +199,19 @@ export async function getKnowledgeBase(id: string): Promise<{
 export async function uploadDocuments(
   knowledgeBaseId: string,
   files: File[],
-  apiKey: string
+  apiKey: string,
+  options?: { chunk_size?: number; chunk_overlap?: number }
 ): Promise<any> {
   const formData = new FormData();
   files.forEach((file) => {
     formData.append("files", file);
   });
+  if (options?.chunk_size != null) {
+    formData.append("chunk_size", String(options.chunk_size));
+  }
+  if (options?.chunk_overlap != null) {
+    formData.append("chunk_overlap", String(options.chunk_overlap));
+  }
 
   const response = await fetch(
     `${API_BASE_URL}/api/knowledge-bases/${knowledgeBaseId}/documents`,

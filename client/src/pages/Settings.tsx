@@ -5,17 +5,12 @@ import {
   Database,
   Brain,
   RefreshCw,
-  HelpCircle,
-  Save,
-  X,
-  Edit,
 } from "lucide-react";
 import {
   getHealthStatus,
   HealthStatus,
   getSystemInfo,
   SystemInfo,
-  updateSystemSettings,
 } from "../services/api";
 
 export const Settings: React.FC = () => {
@@ -27,11 +22,7 @@ export const Settings: React.FC = () => {
   const [infoError, setInfoError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Edit state for Max Retrieved Chunks
-  const [editingMaxChunks, setEditingMaxChunks] = useState(false);
-  const [maxChunksValue, setMaxChunksValue] = useState<number>(5);
-  const [maxChunksSaving, setMaxChunksSaving] = useState(false);
-  const [showTooltip, setShowTooltip] = useState(false);
+  // Note: Per-agent settings are edited on the agent page. Global overrides removed from here.
 
   const fetchHealthStatus = async () => {
     try {
@@ -53,7 +44,6 @@ export const Settings: React.FC = () => {
       setInfoLoading(true);
       const info = await getSystemInfo();
       setSystemInfo(info);
-      setMaxChunksValue(info.ai_configuration.max_retrieved_chunks);
       setInfoError(null);
     } catch (err) {
       setInfoError(
@@ -64,29 +54,7 @@ export const Settings: React.FC = () => {
     }
   };
 
-  const saveMaxChunks = async () => {
-    try {
-      setMaxChunksSaving(true);
-      await updateSystemSettings({
-        max_retrieved_chunks: maxChunksValue,
-      });
-
-      // Refresh system info to get updated values
-      await fetchSystemInfo();
-      setEditingMaxChunks(false);
-    } catch (err) {
-      setInfoError(
-        err instanceof Error ? err.message : "Failed to update setting"
-      );
-    } finally {
-      setMaxChunksSaving(false);
-    }
-  };
-
-  const cancelMaxChunksEdit = () => {
-    setMaxChunksValue(systemInfo?.ai_configuration.max_retrieved_chunks || 5);
-    setEditingMaxChunks(false);
-  };
+  // Removed global Max Retrieved Chunks editor in favor of per-agent settings
 
   useEffect(() => {
     const loadData = async () => {
@@ -275,92 +243,6 @@ export const Settings: React.FC = () => {
                   {systemInfo.ai_configuration.max_context_length.toLocaleString()}{" "}
                   characters
                 </p>
-              </div>
-
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Similarity Threshold
-                </label>
-                <p className="text-gray-900 font-mono text-sm">
-                  {systemInfo.ai_configuration.similarity_threshold}
-                </p>
-              </div>
-
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Max Retrieved Chunks
-                    </label>
-                    <div className="relative">
-                      <button
-                        onMouseEnter={() => setShowTooltip(true)}
-                        onMouseLeave={() => setShowTooltip(false)}
-                        className="text-gray-400 hover:text-gray-600"
-                      >
-                        <HelpCircle className="w-4 h-4" />
-                      </button>
-                      {showTooltip && (
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 p-2 text-sm text-white bg-gray-800 rounded-lg shadow-lg z-10">
-                          The maximum number of document chunks retrieved from
-                          the knowledge base to provide context for each AI
-                          response. Higher values provide more context but may
-                          increase response time.
-                          <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800"></div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {!editingMaxChunks && (
-                    <button
-                      onClick={() => setEditingMaxChunks(true)}
-                      className="text-blue-600 hover:text-blue-800 p-1"
-                      title="Edit setting"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-
-                {editingMaxChunks ? (
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="number"
-                      min="1"
-                      max="50"
-                      value={maxChunksValue}
-                      onChange={(e) =>
-                        setMaxChunksValue(parseInt(e.target.value) || 1)
-                      }
-                      className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
-                      disabled={maxChunksSaving}
-                    />
-                    <button
-                      onClick={saveMaxChunks}
-                      disabled={
-                        maxChunksSaving ||
-                        maxChunksValue < 1 ||
-                        maxChunksValue > 50
-                      }
-                      className="p-1 text-green-600 hover:text-green-800 disabled:text-gray-400"
-                      title="Save"
-                    >
-                      <Save className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={cancelMaxChunksEdit}
-                      disabled={maxChunksSaving}
-                      className="p-1 text-gray-600 hover:text-gray-800 disabled:text-gray-400"
-                      title="Cancel"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <p className="text-gray-900 font-mono text-sm">
-                    {systemInfo.ai_configuration.max_retrieved_chunks}
-                  </p>
-                )}
               </div>
 
               <div className="bg-gray-50 p-4 rounded-lg">

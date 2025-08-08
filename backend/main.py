@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import uuid
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, UploadFile, File, Header
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, UploadFile, File, Header, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import aiofiles
@@ -19,7 +19,8 @@ try:
         CreateKnowledgeBaseRequest,
         PublicChatRequest, PublicChatResponse,
         TestAPIKeyRequest,
-        UpdateSystemSettingsRequest, UpdateSystemSettingsResponse
+        UpdateSystemSettingsRequest, UpdateSystemSettingsResponse,
+        AgentSettingsModel, UpdateAgentSettingsRequest
     )
     from backend.models.chat_models import ChatMessage, MessageRole
     from backend.services.database_service import database_service
@@ -28,13 +29,15 @@ try:
     from backend.services.rag_service import rag_service
     from backend.services.ollama_service import OllamaService
     from backend.services.document_processor import DocumentProcessor
+    from backend.services.agent_settings_service import agent_settings_service
 except ImportError:
     from config import settings
     from models.api_models import (
         CreateKnowledgeBaseRequest,
         PublicChatRequest, PublicChatResponse,
         TestAPIKeyRequest,
-        UpdateSystemSettingsRequest, UpdateSystemSettingsResponse
+        UpdateSystemSettingsRequest, UpdateSystemSettingsResponse,
+        AgentSettingsModel, UpdateAgentSettingsRequest
     )
     from models.chat_models import ChatMessage, MessageRole
     from services.database_service import database_service
@@ -43,6 +46,7 @@ except ImportError:
     from services.rag_service import rag_service
     from services.ollama_service import OllamaService
     from services.document_processor import DocumentProcessor
+    from services.agent_settings_service import agent_settings_service
 
 # Configure logging
 logging.basicConfig(
@@ -176,13 +180,30 @@ async def get_knowledge_base(kb_id: str):
                 status_code=404, detail="Knowledge base not found")
 
         documents = await rag_service.list_documents(kb_id)
+        # Fetch per-agent settings if any
+        agent_settings_row = await agent_settings_service.get_settings(kb_id)
         api_keys = await api_key_service.list_api_keys(kb_id)
         api_key = api_keys[0] if api_keys else None
+
+        # Compose default per-agent config based on global settings for new agents
+        default_config = {}
+        if not agent_settings_row and kb.agent_type == "data_processing":
+            default_config = {
+                "chunk_size": settings.CHUNK_SIZE,
+                "chunk_overlap": settings.CHUNK_OVERLAP,
+                "max_retrieved_chunks": settings.MAX_RETRIEVED_CHUNKS,
+                "similarity_threshold": settings.SIMILARITY_THRESHOLD,
+            }
 
         return {
             **kb.dict(),
             "documents": documents,
-            "api_key": api_key
+            "api_key": api_key,
+            "agent_settings": {
+                "knowledge_base_id": kb.id,
+                "agent_type": kb.agent_type,
+                "config": agent_settings_row.config if agent_settings_row else default_config,
+            },
         }
     except HTTPException:
         raise
@@ -216,7 +237,9 @@ async def upload_documents(
     kb_id: str,
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
-    validation_result: tuple = Depends(validate_api_key_dependency)
+    chunk_size: Optional[int] = Form(None),
+    chunk_overlap: Optional[int] = Form(None),
+    validation_result: tuple = Depends(validate_api_key_dependency),
 ):
     """Upload and process multiple documents"""
     knowledge_base_id, api_key = validation_result
@@ -273,7 +296,9 @@ async def upload_documents(
                 text=content,
                 filename=file.filename,
                 knowledge_base_id=knowledge_base_id,
-                file_size=file.size
+                file_size=file.size,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
             )
 
             # Clean up temporary file
@@ -349,9 +374,22 @@ async def public_chat_api(request: PublicChatRequest):
             session_id, max_messages=5
         )
 
+        # Load per-agent retrieval overrides if any
+        agent_settings = await agent_settings_service.get_settings(knowledge_base_id)
+        max_chunks_override = None
+        similarity_threshold_override = None
+        if agent_settings and agent_settings.config:
+            cfg = agent_settings.config
+            if isinstance(cfg.get("max_retrieved_chunks"), int):
+                max_chunks_override = cfg.get("max_retrieved_chunks")
+            if isinstance(cfg.get("similarity_threshold"), (int, float)):
+                similarity_threshold_override = float(cfg.get("similarity_threshold"))
+
         context_chunks = await rag_service.retrieve_context(
             query=request.message,
-            knowledge_base_id=knowledge_base_id
+            knowledge_base_id=knowledge_base_id,
+            max_chunks=max_chunks_override,
+            similarity_threshold=similarity_threshold_override,
         )
 
         rag_context = "\n\n".join([chunk.content for chunk in context_chunks])
@@ -588,6 +626,68 @@ async def update_system_settings(request: UpdateSystemSettingsRequest):
         raise HTTPException(
             status_code=500, detail=f"Error updating system settings: {str(e)}")
 
+
+@app.get("/api/knowledge-bases/{kb_id}/settings")
+async def get_agent_settings(kb_id: str):
+    try:
+        settings_row = await agent_settings_service.get_settings(kb_id)
+        if not settings_row:
+            # Return defaults based on knowledge base type
+            kb = await api_key_service.get_knowledge_base(kb_id)
+            if not kb:
+                raise HTTPException(status_code=404, detail="Knowledge base not found")
+            return {
+                "knowledge_base_id": kb.id,
+                "agent_type": kb.agent_type,
+                "config": {}
+            }
+        return {
+            "knowledge_base_id": str(settings_row.knowledge_base_id),
+            "agent_type": settings_row.agent_type,
+            "config": settings_row.config,
+            "created_at": settings_row.created_at,
+            "updated_at": settings_row.updated_at,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting agent settings: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error fetching agent settings")
+
+
+@app.put("/api/knowledge-bases/{kb_id}/settings")
+async def update_agent_settings(kb_id: str, request: UpdateAgentSettingsRequest):
+    try:
+        kb = await api_key_service.get_knowledge_base(kb_id)
+        if not kb:
+            raise HTTPException(status_code=404, detail="Knowledge base not found")
+        # Enforce immutability of chunking settings after documents exist
+        if kb.agent_type == "data_processing":
+            cfg = request.config or {}
+            # Determine if changing chunking parameters
+            changing_chunking = any(key in cfg for key in ["chunk_size", "chunk_overlap"])
+            if changing_chunking:
+                # Load current KB to check document counts
+                # Use rag_service.stats or KnowledgeBase totals
+                stats = await rag_service.get_knowledge_base_stats(kb_id)
+                if stats.get("total_documents", 0) > 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Chunk Size and Chunk Overlap cannot be changed after documents are uploaded."
+                    )
+        updated = await agent_settings_service.upsert_settings(kb_id, kb.agent_type, request.config or {})
+        return {
+            "knowledge_base_id": str(updated.knowledge_base_id),
+            "agent_type": updated.agent_type,
+            "config": updated.config,
+            "created_at": updated.created_at,
+            "updated_at": updated.updated_at,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating agent settings: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error updating agent settings")
 
 if __name__ == "__main__":
     import uvicorn

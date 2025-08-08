@@ -50,7 +50,15 @@ class RAGService:
             logger.error(f"Error initializing RAG service: {str(e)}")
             raise
 
-    async def process_document(self, text: str, filename: str, knowledge_base_id: str, file_size: Optional[int] = None) -> str:
+    async def process_document(
+        self,
+        text: str,
+        filename: str,
+        knowledge_base_id: str,
+        file_size: Optional[int] = None,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+    ) -> str:
         """Process a document by creating embeddings and storing in PostgreSQL"""
         if not self.is_initialized:
             await self.initialize()
@@ -71,8 +79,10 @@ class RAGService:
                 # Preprocess text
                 processed_text = self.document_processor.preprocess_text(text)
 
-                # Chunk the text
-                chunks = self.document_processor.chunk_text(processed_text)
+                # Chunk the text (allow per-agent overrides)
+                chunks = self.document_processor.chunk_text(
+                    processed_text, chunk_size=chunk_size, overlap=chunk_overlap
+                )
 
                 # Create embeddings for each chunk
                 chunk_texts = [chunk['text'] for chunk in chunks]
@@ -120,9 +130,14 @@ class RAGService:
             logger.error(f"Error processing document {filename}: {str(e)}")
             raise
 
-    async def retrieve_context(self, query: str, knowledge_base_id: str,
-                               document_id: Optional[str] = None,
-                               max_chunks: int = None) -> List[ContextChunk]:
+    async def retrieve_context(
+        self,
+        query: str,
+        knowledge_base_id: str,
+        document_id: Optional[str] = None,
+        max_chunks: Optional[int] = None,
+        similarity_threshold: Optional[float] = None,
+    ) -> List[ContextChunk]:
         """Retrieve relevant context chunks using vector similarity search"""
         if not self.is_initialized:
             await self.initialize()
@@ -132,7 +147,11 @@ class RAGService:
             query_embedding = self.embedding_model.encode([query])[0]
 
             max_chunks = max_chunks or settings.MAX_RETRIEVED_CHUNKS
-            similarity_threshold = settings.SIMILARITY_THRESHOLD
+            similarity_threshold = (
+                similarity_threshold
+                if similarity_threshold is not None
+                else settings.SIMILARITY_THRESHOLD
+            )
 
             async with database_service.get_session() as session:
                 # Convert embedding to proper format for PostgreSQL vector

@@ -81,3 +81,17 @@ class UpdateSystemSettingsResponse(BaseModel):
     """Response model for system settings update"""
     message: str
     updated_settings: Dict[str, Any] 
+
+
+class AgentSettingsModel(BaseModel):
+    """Per-agent settings model"""
+    knowledge_base_id: str
+    agent_type: str
+    config: Dict[str, Any]
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class UpdateAgentSettingsRequest(BaseModel):
+    """Request to update settings for a knowledge base (agent)"""
+    config: Dict[str, Any] = Field(default_factory=dict)
