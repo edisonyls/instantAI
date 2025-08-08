@@ -5,6 +5,7 @@ export interface KnowledgeBase {
   id: string;
   name: string;
   description?: string;
+  agent_type: string;
   total_documents: number;
   total_chunks: number;
   created_at: string;
@@ -36,6 +37,7 @@ export interface DocumentInfo {
 export interface CreateKnowledgeBaseRequest {
   name: string;
   description?: string;
+  agent_type?: string;
 }
 
 export interface CreateKnowledgeBaseResponse {

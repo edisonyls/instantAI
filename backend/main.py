@@ -133,7 +133,8 @@ async def create_knowledge_base(request: CreateKnowledgeBaseRequest):
     try:
         kb = await api_key_service.create_knowledge_base(
             name=request.name,
-            description=request.description
+            description=request.description,
+            agent_type=request.agent_type
         )
 
         # Create an API key for the knowledge base

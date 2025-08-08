@@ -13,12 +13,17 @@ import {
   EyeOff,
 } from "lucide-react";
 import { cn } from "../utils/cn";
-import { uploadDocuments, deleteKnowledgeBase, deleteDocument as deleteDocumentAPI } from "../services/api";
+import {
+  uploadDocuments,
+  deleteKnowledgeBase,
+  deleteDocument as deleteDocumentAPI,
+} from "../services/api";
 
 interface KnowledgeBase {
   id: string;
   name: string;
   description?: string;
+  agent_type: string;
   total_documents: number;
   total_chunks: number;
   created_at: string;
@@ -57,6 +62,7 @@ export const Dashboard: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [kbName, setKbName] = useState("");
   const [kbDescription, setKbDescription] = useState("");
+  const [kbAgentType, setKbAgentType] = useState<string>("data_processing");
 
   const fetchKnowledgeBases = useCallback(async () => {
     try {
@@ -100,6 +106,16 @@ export const Dashboard: React.FC = () => {
       console.log("KB details:", data);
       setDocuments(data.documents || []);
       setApiKey(data.api_key);
+      // Ensure selected KB has up-to-date agent_type from backend
+      setSelectedKb((prev) =>
+        prev && prev.id === kb.id
+          ? {
+              ...prev,
+              agent_type:
+                data.agent_type ?? prev.agent_type ?? "data_processing",
+            }
+          : prev
+      );
     } catch (error) {
       console.error("Error fetching knowledge base details:", error);
     } finally {
@@ -119,6 +135,7 @@ export const Dashboard: React.FC = () => {
           body: JSON.stringify({
             name: kbName,
             description: kbDescription || undefined,
+            agent_type: kbAgentType,
           }),
         }
       );
@@ -130,6 +147,7 @@ export const Dashboard: React.FC = () => {
         setShowCreateModal(false);
         setKbName("");
         setKbDescription("");
+        setKbAgentType("data_processing");
       }
     } catch (error) {
       console.error("Error creating knowledge base:", error);
@@ -280,6 +298,20 @@ export const Dashboard: React.FC = () => {
                     >
                       <div>
                         <h3 className="font-medium text-gray-900">{kb.name}</h3>
+                        <div className="mt-1">
+                          <span
+                            className={cn(
+                              "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium",
+                              (kb.agent_type ?? "data_processing") === "mcp"
+                                ? "bg-purple-100 text-purple-800"
+                                : "bg-green-100 text-green-800"
+                            )}
+                          >
+                            {(kb.agent_type ?? "data_processing") === "mcp"
+                              ? "MCP Agent"
+                              : "Data Processing Agent"}
+                          </span>
+                        </div>
                         {kb.description && (
                           <p className="text-sm text-gray-600 mt-1">
                             {kb.description}
@@ -405,74 +437,76 @@ export const Dashboard: React.FC = () => {
                 )}
               </div>
 
-              {/* Documents Section */}
-              <div className="bg-white rounded-lg shadow-sm border">
-                <div className="p-4 border-b">
-                  <h2 className="text-lg font-semibold flex items-center">
-                    <FileText className="w-5 h-5 mr-2" />
-                    Documents ({documents.length})
-                  </h2>
-                </div>
-
-                <div className="p-6">
-                  {/* Upload Area */}
-                  <div
-                    {...getRootProps()}
-                    className={cn(
-                      "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
-                      isDragActive
-                        ? "border-blue-400 bg-blue-50"
-                        : "border-gray-300 hover:border-gray-400"
-                    )}
-                  >
-                    <input {...getInputProps()} />
-                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600">
-                      {isDragActive
-                        ? "Drop the files here..."
-                        : "Drag & drop documents here, or click to select"}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-2">
-                      Supports .txt and .docx files (10MB max per file)
-                    </p>
+              {/* Documents Section (hidden for MCP agents) */}
+              {(selectedKb?.agent_type ?? "data_processing") !== "mcp" && (
+                <div className="bg-white rounded-lg shadow-sm border">
+                  <div className="p-4 border-b">
+                    <h2 className="text-lg font-semibold flex items-center">
+                      <FileText className="w-5 h-5 mr-2" />
+                      {`Documents (${documents.length})`}
+                    </h2>
                   </div>
 
-                  {/* Documents List */}
-                  {documents.length > 0 && (
-                    <div className="mt-6 space-y-2">
-                      {documents.map((doc) => (
-                        <div
-                          key={doc.id}
-                          className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                        >
-                          <div className="flex items-center space-x-3">
-                            <FileText className="w-5 h-5 text-gray-400" />
-                            <div>
-                              <p className="font-medium text-sm">
-                                {doc.filename}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                {doc.chunk_count} chunks •{" "}
-                                {doc.text_length
-                                  ? `${(doc.text_length / 1000).toFixed(1)}k chars`
-                                  : doc.file_size
-                                    ? `${(doc.file_size / 1024).toFixed(1)}KB`
-                                    : "Size unknown"}
-                              </p>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => deleteDocument(doc.id)}
-                            className="p-2 text-gray-400 hover:text-red-600 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
+                  <div className="p-6">
+                    {/* Upload Area */}
+                    <div
+                      {...getRootProps()}
+                      className={cn(
+                        "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
+                        isDragActive
+                          ? "border-blue-400 bg-blue-50"
+                          : "border-gray-300 hover:border-gray-400"
+                      )}
+                    >
+                      <input {...getInputProps()} />
+                      <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-600">
+                        {isDragActive
+                          ? "Drop the files here..."
+                          : "Drag & drop documents here, or click to select"}
+                      </p>
+                      <p className="text-sm text-gray-500 mt-2">
+                        Supports .txt and .docx files (10MB max per file)
+                      </p>
                     </div>
-                  )}
+
+                    {/* Documents List */}
+                    {documents.length > 0 && (
+                      <div className="mt-6 space-y-2">
+                        {documents.map((doc) => (
+                          <div
+                            key={doc.id}
+                            className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                          >
+                            <div className="flex items-center space-x-3">
+                              <FileText className="w-5 h-5 text-gray-400" />
+                              <div>
+                                <p className="font-medium text-sm">
+                                  {doc.filename}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {doc.chunk_count} chunks •{" "}
+                                  {doc.text_length
+                                    ? `${(doc.text_length / 1000).toFixed(1)}k chars`
+                                    : doc.file_size
+                                      ? `${(doc.file_size / 1024).toFixed(1)}KB`
+                                      : "Size unknown"}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => deleteDocument(doc.id)}
+                              className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           ) : (
             <div className="bg-white rounded-lg shadow-sm border p-12 text-center">
@@ -542,6 +576,24 @@ export const Dashboard: React.FC = () => {
                     }
                   }}
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Agent Type
+                </label>
+                <select
+                  value={kbAgentType}
+                  onChange={(e) => setKbAgentType(e.target.value)}
+                  className="input w-full"
+                >
+                  <option value="data_processing">Data Processing Agent</option>
+                  <option value="mcp">MCP Agent</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Choose the type of agent. MCP requires additional setup and
+                  will be enabled soon.
+                </p>
               </div>
             </div>
 

@@ -9,6 +9,7 @@ class KnowledgeBase(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique knowledge base ID")
     name: str = Field(..., description="Name of the knowledge base")
     description: Optional[str] = Field(None, description="Description of the knowledge base")
+    agent_type: str = Field(default="data_processing", description="Type of agent: 'data_processing' or 'mcp'")
     document_ids: List[str] = Field(default_factory=list, description="List of document IDs in this knowledge base")
     total_documents: int = Field(default=0, description="Total number of documents")
     total_chunks: int = Field(default=0, description="Total number of chunks across all documents")
@@ -32,6 +33,7 @@ class CreateKnowledgeBaseRequest(BaseModel):
     """Request model for creating a knowledge base"""
     name: str = Field(..., description="Name of the knowledge base")
     description: Optional[str] = Field(None, description="Description of the knowledge base")
+    agent_type: str = Field(default="data_processing", description="Type of agent to create: 'data_processing' or 'mcp'")
 
 
 class CreateKnowledgeBaseResponse(BaseModel):

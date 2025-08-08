@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    agent_type VARCHAR(50) NOT NULL DEFAULT 'data_processing',
     total_documents INTEGER DEFAULT 0,
     total_chunks INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
