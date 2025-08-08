@@ -66,6 +66,8 @@ export const Dashboard: React.FC = () => {
   const [kbAgentType, setKbAgentType] = useState<string>("data_processing");
   const [agentSettings, setAgentSettings] = useState<any>({});
   const [globalDefaults, setGlobalDefaults] = useState<any>({});
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
   const [showUploadConfig, setShowUploadConfig] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploadChunkSize, setUploadChunkSize] = useState<number | "">("");
@@ -108,6 +110,10 @@ export const Dashboard: React.FC = () => {
           chunk_size: system?.document_processing?.chunk_size,
           chunk_overlap: system?.document_processing?.chunk_overlap,
         });
+        setAvailableModels(system?.ai_configuration?.available_models || []);
+        if (!selectedModel && system?.ai_configuration?.ollama_model) {
+          setSelectedModel(system.ai_configuration.ollama_model);
+        }
       } catch {}
     })();
   }, []);
@@ -170,6 +176,7 @@ export const Dashboard: React.FC = () => {
             name: kbName,
             description: kbDescription || undefined,
             agent_type: kbAgentType,
+            model: selectedModel || undefined,
           }),
         }
       );
@@ -834,6 +841,28 @@ export const Dashboard: React.FC = () => {
                 <p className="text-xs text-gray-500 mt-1">
                   Choose the type of agent. MCP requires additional setup and
                   will be enabled soon.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Model
+                </label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="input w-full"
+                >
+                  <option value="">Use system default</option>
+                  {availableModels.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Choose a model available in Ollama. If empty, system default
+                  will be used.
                 </p>
               </div>
             </div>

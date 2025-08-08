@@ -138,7 +138,8 @@ async def create_knowledge_base(request: CreateKnowledgeBaseRequest):
         kb = await api_key_service.create_knowledge_base(
             name=request.name,
             description=request.description,
-            agent_type=request.agent_type
+            agent_type=request.agent_type,
+            model=request.model
         )
 
         # Create an API key for the knowledge base
@@ -547,6 +548,11 @@ async def get_system_info():
 
         # Check Ollama status for AI configuration
         ollama_health = await ollama_service.health_check()
+        available_models = []
+        try:
+            available_models = await ollama_service.get_available_models()
+        except Exception:
+            available_models = ollama_health.get("available_models", [])
 
         # Format response for frontend expectations
         return {
@@ -559,7 +565,7 @@ async def get_system_info():
                 "embedding_model": settings.EMBEDDING_MODEL,
                 "ollama_status": ollama_health.get("status", "unknown"),
                 "model_ready": ollama_health.get("model_ready", False),
-                "available_models": ollama_health.get("available_models", [])
+                "available_models": available_models
             },
             "document_processing": {
                 "chunk_size": settings.CHUNK_SIZE,

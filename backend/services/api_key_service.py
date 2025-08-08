@@ -93,13 +93,14 @@ class APIKeyService:
             logger.error(f"Error creating API key: {str(e)}")
             raise
 
-    async def create_knowledge_base(self, name: str, description: Optional[str] = None, agent_type: str = "data_processing") -> KnowledgeBaseModel:
+    async def create_knowledge_base(self, name: str, description: Optional[str] = None, agent_type: str = "data_processing", model: Optional[str] = None) -> KnowledgeBaseModel:
         """Create a new knowledge base"""
         try:
             async with database_service.get_session() as session:
                 kb = KnowledgeBase(
                     name=name,
                     description=description,
+                    model=model,
                     agent_type=agent_type,
                     total_documents=0,
                     total_chunks=0

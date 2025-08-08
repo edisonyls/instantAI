@@ -34,6 +34,7 @@ class CreateKnowledgeBaseRequest(BaseModel):
     name: str = Field(..., description="Name of the knowledge base")
     description: Optional[str] = Field(None, description="Description of the knowledge base")
     agent_type: str = Field(default="data_processing", description="Type of agent to create: 'data_processing' or 'mcp'")
+    model: Optional[str] = Field(None, description="Preferred AI model for this agent")
 
 
 class CreateKnowledgeBaseResponse(BaseModel):

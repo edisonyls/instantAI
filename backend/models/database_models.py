@@ -18,6 +18,7 @@ class KnowledgeBase(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text)
+    model = Column(String(255))
     agent_type = Column(String(50), nullable=False, default="data_processing")
     total_documents = Column(Integer, default=0)
     total_chunks = Column(Integer, default=0)
