@@ -453,42 +453,6 @@ export const Settings: React.FC = () => {
                 Manage Models
               </h3>
               <div className="bg-gray-50 p-4 rounded-lg space-y-4">
-                {/* Search and custom pull */}
-                <div className="flex flex-col md:flex-row md:items-center md:space-x-3 space-y-2 md:space-y-0">
-                  <input
-                    type="text"
-                    placeholder="Search or enter a model name (e.g., gemma3:4b)"
-                    className="input flex-1"
-                    onKeyDown={async (e) => {
-                      const target = e.target as HTMLInputElement;
-                      const name = target.value.trim();
-                      if (e.key === "Enter" && name) {
-                        try {
-                          setPullingModel(name);
-                          setPullProgress((p) => ({
-                            ...p,
-                            [name]: "Starting...",
-                          }));
-                          await startBackgroundPull(name);
-                          setPullProgress((p) => ({
-                            ...p,
-                            [name]: "Starting...",
-                          }));
-                          setPullingModel(null);
-                          debouncedRefreshSystemInfo();
-                        } catch {
-                          setPullProgress((p) => ({ ...p, [name]: "Error" }));
-                          setPullingModel(null);
-                          alert(`Failed to download ${name}`);
-                        }
-                      }
-                    }}
-                  />
-                  <span className="text-xs text-gray-500">
-                    Press Enter to download
-                  </span>
-                </div>
-
                 {/* Popular models list with installed markers */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -572,43 +536,47 @@ export const Settings: React.FC = () => {
                               </div>
                             ) : installed ? (
                               <div className="flex items-center space-x-2">
-                                <CheckCircle
-                                  className="w-4 h-4 text-green-600"
-                                  aria-hidden="true"
-                                />
-                                <button
-                                  aria-label={`Delete ${m}`}
-                                  title="Delete"
-                                  className="p-1.5 rounded hover:bg-red-50 text-red-600"
-                                  onClick={async () => {
-                                    if (
-                                      m ===
-                                      systemInfo.ai_configuration.ollama_model
-                                    ) {
-                                      showToast(
-                                        "Cannot delete the default model",
-                                        "error"
-                                      );
-                                      return;
-                                    }
-                                    try {
-                                      await deleteModel(m);
-                                      await updateAvailableModels();
-                                      showToast(
-                                        `Model ${m} has been deleted`,
-                                        "success"
-                                      );
-                                    } catch (e) {
-                                      showToast(
-                                        `Failed to delete ${m}`,
-                                        "error"
-                                      );
-                                    }
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                  <span className="sr-only">Delete</span>
-                                </button>
+                                {m !== "gemma2:2b" && (
+                                  <CheckCircle
+                                    className="w-4 h-4 text-green-600"
+                                    aria-hidden="true"
+                                  />
+                                )}
+                                {m !== "gemma2:2b" && (
+                                  <button
+                                    aria-label={`Delete ${m}`}
+                                    title="Delete"
+                                    className="p-1.5 rounded hover:bg-red-50 text-red-600"
+                                    onClick={async () => {
+                                      if (
+                                        m ===
+                                        systemInfo.ai_configuration.ollama_model
+                                      ) {
+                                        showToast(
+                                          "Cannot delete the default model",
+                                          "error"
+                                        );
+                                        return;
+                                      }
+                                      try {
+                                        await deleteModel(m);
+                                        await updateAvailableModels();
+                                        showToast(
+                                          `Model ${m} has been deleted`,
+                                          "success"
+                                        );
+                                      } catch (e) {
+                                        showToast(
+                                          `Failed to delete ${m}`,
+                                          "error"
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                    <span className="sr-only">Delete</span>
+                                  </button>
+                                )}
                               </div>
                             ) : (
                               <button
