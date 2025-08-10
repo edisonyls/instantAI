@@ -5,6 +5,10 @@ import {
   Database,
   Brain,
   RefreshCw,
+  Download,
+  CheckCircle,
+  Loader2,
+  Trash2,
 } from "lucide-react";
 import {
   getHealthStatus,
@@ -13,6 +17,7 @@ import {
   SystemInfo,
   startBackgroundPull,
   listActivePulls,
+  deleteModel,
 } from "../services/api";
 
 export const Settings: React.FC = () => {
@@ -333,6 +338,7 @@ export const Settings: React.FC = () => {
                   <div className="max-h-56 overflow-auto divide-y divide-gray-200 bg-white rounded border">
                     {[
                       "gemma3:4b",
+                      "gemma3:1b",
                       "gemma2:2b",
                       "qwen3:4b",
                       "qwen2.5:3b",
@@ -360,52 +366,77 @@ export const Settings: React.FC = () => {
                               </span>
                             )}
                           </div>
-                          <button
-                            className="btn btn-primary btn-sm"
-                            disabled={
-                              pullingModel === m ||
-                              !!installed ||
-                              !!(
-                                pullProgress[m] &&
-                                pullProgress[m] !== "Completed" &&
-                                pullProgress[m] !== "Error"
-                              )
-                            }
-                            onClick={async () => {
-                              try {
-                                setPullingModel(m);
-                                setPullProgress((p) => ({
-                                  ...p,
-                                  [m]: "Starting...",
-                                }));
-                                await startBackgroundPull(m);
-                                setPullProgress((p) => ({
-                                  ...p,
-                                  [m]: "Starting...",
-                                }));
-                                setPullingModel(null);
-                                setTimeout(fetchSystemInfo, 2000);
-                              } catch (e) {
-                                setPullProgress((p) => ({
-                                  ...p,
-                                  [m]: "Error",
-                                }));
-                                setPullingModel(null);
-                                alert(`Failed to download ${m}`);
-                              }
-                            }}
-                          >
-                            {installed
-                              ? "Installed"
-                              : pullingModel === m ||
-                                  !!(
-                                    pullProgress[m] &&
-                                    pullProgress[m] !== "Completed" &&
-                                    pullProgress[m] !== "Error"
-                                  )
-                                ? "Downloading..."
-                                : "Download"}
-                          </button>
+                          <div className="flex items-center space-x-2">
+                            {pullingModel === m ||
+                            (pullProgress[m] &&
+                              pullProgress[m] !== "Completed" &&
+                              pullProgress[m] !== "Error") ? (
+                              <button
+                                aria-label="Downloading"
+                                disabled
+                                className="p-1.5 rounded text-gray-400"
+                              >
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              </button>
+                            ) : installed ? (
+                              <div className="flex items-center space-x-2">
+                                <CheckCircle
+                                  className="w-4 h-4 text-green-600"
+                                  aria-hidden="true"
+                                />
+                                <button
+                                  aria-label={`Delete ${m}`}
+                                  title="Delete"
+                                  className="p-1.5 rounded hover:bg-red-50 text-red-600"
+                                  onClick={async () => {
+                                    try {
+                                      await deleteModel(m);
+                                      await fetchSystemInfo();
+                                    } catch (e) {
+                                      // eslint-disable-next-line no-alert
+                                      alert(`Failed to delete ${m}`);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  <span className="sr-only">Delete</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                aria-label={`Download ${m}`}
+                                title="Download"
+                                className="p-1.5 rounded hover:bg-blue-50 text-blue-600"
+                                onClick={async () => {
+                                  try {
+                                    setPullingModel(m);
+                                    setPullProgress((p) => ({
+                                      ...p,
+                                      [m]: "Starting...",
+                                    }));
+                                    await startBackgroundPull(m);
+                                    setPullProgress((p) => ({
+                                      ...p,
+                                      [m]: "Starting...",
+                                    }));
+                                    setPullingModel(null);
+                                    setTimeout(fetchSystemInfo, 2000);
+                                  } catch (e) {
+                                    setPullProgress((p) => ({
+                                      ...p,
+                                      [m]: "Error",
+                                    }));
+                                    setPullingModel(null);
+                                    // eslint-disable-next-line no-alert
+                                    alert(`Failed to download ${m}`);
+                                  }
+                                }}
+                              >
+                                <Download className="w-4 h-4" />
+                                <span className="sr-only">Download</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}

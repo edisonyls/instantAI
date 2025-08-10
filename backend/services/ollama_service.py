@@ -384,6 +384,30 @@ Answer:"""
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
 
+    async def delete_model(self, model_name: str) -> None:
+        """Delete a model from the local Ollama repository."""
+        if not self.session:
+            self.session = aiohttp.ClientSession()
+        try:
+            async with self.session.delete(
+                f"{self.base_url}/api/delete",
+                json={"name": model_name},
+                timeout=aiohttp.ClientTimeout(total=60)
+            ) as response:
+                if response.status == 200:
+                    logger.info(f"Deleted model {model_name}")
+                    # Clean any tracking state for this model
+                    self.pull_status.pop(model_name, None)
+                    task = self.pull_tasks.pop(model_name, None)
+                    if task and not task.done():
+                        task.cancel()
+                else:
+                    text = await response.text()
+                    raise Exception(f"Failed to delete model {model_name}: {response.status} {text}")
+        except Exception as e:
+            logger.error(f"Error deleting model {model_name}: {str(e)}")
+            raise
+
     async def close(self):
         """Close the session"""
         if self.session:

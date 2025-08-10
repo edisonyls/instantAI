@@ -671,6 +671,16 @@ async def list_active_pulls():
         raise HTTPException(
             status_code=500, detail=f"Failed to list active pulls: {str(e)}")
 
+@app.delete("/api/models")
+async def delete_model(model: str):
+    """Delete a model installed in Ollama by name"""
+    try:
+        await ollama_service.delete_model(model)
+        return {"message": f"Model {model} deleted"}
+    except Exception as e:
+        logger.error(f"Error deleting model {model}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete model: {str(e)}")
+
 
 @app.get("/api/knowledge-bases/{kb_id}/settings")
 async def get_agent_settings(kb_id: str):
