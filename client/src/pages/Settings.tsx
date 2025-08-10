@@ -11,6 +11,7 @@ import {
   HealthStatus,
   getSystemInfo,
   SystemInfo,
+  API_BASE_URL,
 } from "../services/api";
 
 export const Settings: React.FC = () => {
@@ -18,6 +19,8 @@ export const Settings: React.FC = () => {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [infoLoading, setInfoLoading] = useState(true);
+  const [pullingModel, setPullingModel] = useState<string | null>(null);
+  const [pullProgress, setPullProgress] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -252,6 +255,210 @@ export const Settings: React.FC = () => {
                 <p className="text-gray-900 font-mono text-sm">
                   {systemInfo.ai_configuration.embedding_model}
                 </p>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <h3 className="text-sm font-medium text-gray-900 mb-2">
+                Manage Models
+              </h3>
+              <div className="bg-gray-50 p-4 rounded-lg space-y-4">
+                {/* Search and custom pull */}
+                <div className="flex flex-col md:flex-row md:items-center md:space-x-3 space-y-2 md:space-y-0">
+                  <input
+                    type="text"
+                    placeholder="Search or enter a model name (e.g., gemma3:4b)"
+                    className="input flex-1"
+                    onKeyDown={async (e) => {
+                      const target = e.target as HTMLInputElement;
+                      const name = target.value.trim();
+                      if (e.key === "Enter" && name) {
+                        try {
+                          setPullingModel(name);
+                          setPullProgress((p) => ({
+                            ...p,
+                            [name]: "Starting...",
+                          }));
+                          const res = await fetch(
+                            `${API_BASE_URL}/api/models/pull/stream?model=${encodeURIComponent(name)}`
+                          );
+                          if (!res.ok || !res.body)
+                            throw new Error("Failed to start stream");
+                          const reader = res.body.getReader();
+                          const decoder = new TextDecoder();
+                          let buffer = "";
+                          while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            buffer += decoder.decode(value, { stream: true });
+                            let idx;
+                            while ((idx = buffer.indexOf("\n")) >= 0) {
+                              const line = buffer.slice(0, idx).trim();
+                              buffer = buffer.slice(idx + 1);
+                              if (!line) continue;
+                              try {
+                                const evt = JSON.parse(line);
+                                const status =
+                                  evt.status ||
+                                  evt.message ||
+                                  JSON.stringify(evt);
+                                setPullProgress((p) => ({
+                                  ...p,
+                                  [name]: status,
+                                }));
+                              } catch {
+                                setPullProgress((p) => ({
+                                  ...p,
+                                  [name]: line,
+                                }));
+                              }
+                            }
+                          }
+                          setPullProgress((p) => ({
+                            ...p,
+                            [name]: "Completed",
+                          }));
+                          setPullingModel(null);
+                          await fetchSystemInfo();
+                        } catch {
+                          setPullProgress((p) => ({ ...p, [name]: "Error" }));
+                          setPullingModel(null);
+                          alert(`Failed to download ${name}`);
+                        }
+                      }
+                    }}
+                  />
+                  <span className="text-xs text-gray-500">
+                    Press Enter to download
+                  </span>
+                </div>
+
+                {/* Popular models list with installed markers */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-800">
+                      Popular Models
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      Scroll to see more
+                    </span>
+                  </div>
+                  <div className="max-h-56 overflow-auto divide-y divide-gray-200 bg-white rounded border">
+                    {[
+                      "gemma3:4b",
+                      "gemma2:2b",
+                      "qwen3:4b",
+                      "qwen2.5:3b",
+                      "llama3.2:1b",
+                      "llama3.2:3b",
+                      "mistral:7b",
+                      "phi3:mini",
+                    ].map((m) => {
+                      const installed =
+                        systemInfo?.ai_configuration?.available_models?.includes(
+                          m
+                        );
+                      return (
+                        <div
+                          key={m}
+                          className="flex items-center justify-between p-2"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <span className="font-mono text-sm text-gray-800">
+                              {m}
+                            </span>
+                            {installed && (
+                              <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700">
+                                Installed
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            disabled={pullingModel === m || installed}
+                            onClick={async () => {
+                              try {
+                                setPullingModel(m);
+                                setPullProgress((p) => ({
+                                  ...p,
+                                  [m]: "Starting...",
+                                }));
+                                const res = await fetch(
+                                  `${API_BASE_URL}/api/models/pull/stream?model=${encodeURIComponent(m)}`
+                                );
+                                if (!res.ok || !res.body)
+                                  throw new Error("Failed to start stream");
+                                const reader = res.body.getReader();
+                                const decoder = new TextDecoder();
+                                let buffer = "";
+                                while (true) {
+                                  const { done, value } = await reader.read();
+                                  if (done) break;
+                                  buffer += decoder.decode(value, {
+                                    stream: true,
+                                  });
+                                  let idx;
+                                  while ((idx = buffer.indexOf("\n")) >= 0) {
+                                    const line = buffer.slice(0, idx).trim();
+                                    buffer = buffer.slice(idx + 1);
+                                    if (!line) continue;
+                                    try {
+                                      const evt = JSON.parse(line);
+                                      const status =
+                                        evt.status ||
+                                        evt.message ||
+                                        JSON.stringify(evt);
+                                      setPullProgress((p) => ({
+                                        ...p,
+                                        [m]: status,
+                                      }));
+                                    } catch {
+                                      setPullProgress((p) => ({
+                                        ...p,
+                                        [m]: line,
+                                      }));
+                                    }
+                                  }
+                                }
+                                setPullProgress((p) => ({
+                                  ...p,
+                                  [m]: "Completed",
+                                }));
+                                setPullingModel(null);
+                                await fetchSystemInfo();
+                              } catch (e) {
+                                setPullProgress((p) => ({
+                                  ...p,
+                                  [m]: "Error",
+                                }));
+                                setPullingModel(null);
+                                alert(`Failed to download ${m}`);
+                              }
+                            }}
+                          >
+                            {installed
+                              ? "Installed"
+                              : pullingModel === m
+                                ? "Downloading..."
+                                : "Download"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Live progress */}
+                {Object.keys(pullProgress).length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {Object.entries(pullProgress).map(([model, msg]) => (
+                      <div key={model} className="text-xs text-gray-600">
+                        <span className="font-mono mr-2">{model}</span>
+                        <span>{msg}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>

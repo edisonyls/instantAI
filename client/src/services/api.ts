@@ -1,4 +1,5 @@
-const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+export const API_BASE_URL =
+  process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 // Knowledge Base APIs
 export interface KnowledgeBase {
@@ -325,4 +326,57 @@ export async function updateSystemSettings(
   }
 
   return response.json();
+}
+
+// Pull a model into Ollama
+export async function pullModel(model: string): Promise<{ message: string }> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/models/pull?model=${encodeURIComponent(model)}`,
+    {
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to pull model: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function streamPullModelNDJSON(
+  model: string,
+  onEvent: (event: any) => void
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/models/pull/stream?model=${encodeURIComponent(model)}`
+  );
+  if (!response.ok || !response.body) {
+    throw new Error(`Failed to start stream: ${response.statusText}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line) continue;
+      try {
+        const evt = JSON.parse(line);
+        onEvent(evt);
+      } catch (e) {
+        onEvent({ message: line });
+      }
+    }
+  }
+  if (buffer.trim()) {
+    try {
+      onEvent(JSON.parse(buffer));
+    } catch (e) {
+      onEvent({ message: buffer });
+    }
+  }
 }

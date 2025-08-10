@@ -92,6 +92,49 @@ class OllamaService:
         except Exception as e:
             raise Exception(f"Error pulling model {model_name}: {str(e)}")
 
+    async def pull_model(self, model_name: str) -> None:
+        """Public method to pull an Ollama model by name"""
+        if not self.session:
+            self.session = aiohttp.ClientSession()
+        await self._pull_model(model_name)
+
+    async def stream_pull_model(self, model_name: str):
+        """Stream pull progress from Ollama as dict events"""
+        if not self.session:
+            self.session = aiohttp.ClientSession()
+        try:
+            async with self.session.post(
+                f"{self.base_url}/api/pull",
+                json={"name": model_name},
+                timeout=aiohttp.ClientTimeout(total=None)
+            ) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    yield {"error": f"Failed to pull: {response.status} {text}"}
+                    return
+                buffer = b""
+                async for chunk in response.content.iter_chunked(1024):
+                    buffer += chunk
+                    while b"\n" in buffer:
+                        line, buffer = buffer.split(b"\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            event = json.loads(line.decode("utf-8"))
+                            yield event
+                        except Exception:
+                            # yield raw line if not json
+                            yield {"message": line.decode("utf-8", errors="ignore")}
+                # flush any remaining
+                if buffer.strip():
+                    try:
+                        yield json.loads(buffer.decode("utf-8"))
+                    except Exception:
+                        yield {"message": buffer.decode("utf-8", errors="ignore")}
+        except Exception as e:
+            yield {"error": str(e)}
+
     async def generate_response(self, query: str, context_chunks: List[ContextChunk] = None, conversation_context: str = "") -> str:
         """ Generate a response using Ollama with optional context from RAG and conversation history """
         if not self.is_initialized:

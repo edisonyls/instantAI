@@ -9,6 +9,8 @@ import uuid
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, UploadFile, File, Header, Form
+from fastapi.responses import StreamingResponse
+import json
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import aiofiles
@@ -631,6 +633,30 @@ async def update_system_settings(request: UpdateSystemSettingsRequest):
         logger.error(f"Error updating system settings: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Error updating system settings: {str(e)}")
+
+
+@app.post("/api/models/pull")
+async def pull_model(model: str):
+    """Pull an Ollama model by name (e.g., 'gemma3:4b')."""
+    try:
+        await ollama_service.pull_model(model)
+        return {"message": f"Model {model} pull initiated"}
+    except Exception as e:
+        logger.error(f"Error pulling model {model}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to pull model: {str(e)}")
+
+
+@app.get("/api/models/pull/stream")
+async def pull_model_stream(model: str):
+    """Stream pull progress for a model as server-sent events (newline-delimited JSON)."""
+    async def event_generator():
+        try:
+            async for event in ollama_service.stream_pull_model(model):
+                yield (json.dumps(event) + "\n").encode("utf-8")
+        except Exception as e:
+            yield (json.dumps({"error": str(e)}) + "\n").encode("utf-8")
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
 
 @app.get("/api/knowledge-bases/{kb_id}/settings")
