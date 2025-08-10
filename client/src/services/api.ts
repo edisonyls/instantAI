@@ -336,6 +336,7 @@ export interface PullStatus {
   percent?: number | null;
   completed?: number;
   total?: number | null;
+  phase?: "downloading" | "verifying" | "completed";
 }
 
 export async function startBackgroundPull(model: string): Promise<PullStatus> {
@@ -365,6 +366,16 @@ export async function listActivePulls(): Promise<{
   const response = await fetch(`${API_BASE_URL}/api/models/pull/active`);
   if (!response.ok) {
     throw new Error(`Failed to list active pulls: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function getAvailableModels(): Promise<{
+  available_models: string[];
+}> {
+  const response = await fetch(`${API_BASE_URL}/api/models`);
+  if (!response.ok) {
+    throw new Error(`Failed to get available models: ${response.statusText}`);
   }
   return response.json();
 }

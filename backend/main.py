@@ -671,10 +671,22 @@ async def list_active_pulls():
         raise HTTPException(
             status_code=500, detail=f"Failed to list active pulls: {str(e)}")
 
+@app.get("/api/models")
+async def get_available_models():
+    """Get list of available models"""
+    try:
+        available_models = await ollama_service.get_available_models()
+        return {"available_models": available_models}
+    except Exception as e:
+        logger.error(f"Error getting available models: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get available models: {str(e)}")
+
 @app.delete("/api/models")
 async def delete_model(model: str):
     """Delete a model installed in Ollama by name"""
     try:
+        if model == settings.OLLAMA_MODEL:
+            raise HTTPException(status_code=403, detail="Cannot delete the default model configured for the system")
         await ollama_service.delete_model(model)
         return {"message": f"Model {model} deleted"}
     except Exception as e:

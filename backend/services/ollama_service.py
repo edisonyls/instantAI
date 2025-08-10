@@ -4,6 +4,7 @@ import logging
 from typing import List, Dict, Optional, Any
 import json
 from datetime import datetime
+import time
 
 try:
     from backend.config import settings
@@ -132,6 +133,7 @@ class OllamaService:
                         }
                         return
 
+                    last_percent: int = 0
                     buffer = b""
                     async for chunk in response.content.iter_chunked(1024):
                         buffer += chunk
@@ -142,13 +144,22 @@ class OllamaService:
                                 continue
                             try:
                                 event = json.loads(line.decode("utf-8"))
-                                status_text = event.get(
-                                    "status") or event.get("message") or ""
+                                status_text = event.get("status") or event.get("message") or ""
                                 completed = event.get("completed")
                                 total = event.get("total")
                                 percent = None
+                                phase = "downloading"
                                 if isinstance(completed, int) and isinstance(total, int) and total > 0:
                                     percent = int((completed / total) * 100)
+                                st_lower = str(status_text).lower()
+                                if any(k in st_lower for k in ["verify", "sha256", "digest"]):
+                                    phase = "verifying"
+                                    percent = 100
+                                if isinstance(percent, int):
+                                    if percent < last_percent:
+                                        percent = last_percent
+                                    else:
+                                        last_percent = percent
                                 self.pull_status[model_name] = {
                                     "model": model_name,
                                     "state": "downloading",
@@ -156,17 +167,36 @@ class OllamaService:
                                     "completed": completed,
                                     "total": total,
                                     "percent": percent,
+                                    "phase": phase,
                                 }
                             except Exception:
+                                # Non-JSON line: preserve existing status but update message
+                                existing = self.pull_status.get(model_name, {})
+                                message = line.decode("utf-8", errors="ignore")
+                                phase = "downloading"
+                                percent = existing.get("percent")
+                                # Detect verification in non-JSON messages
+                                msg_lower = message.lower()
+                                if any(k in msg_lower for k in ["verify", "sha256", "digest"]):
+                                    phase = "verifying"
+                                    percent = 100
                                 self.pull_status[model_name] = {
                                     "model": model_name,
                                     "state": "downloading",
-                                    "message": line.decode("utf-8", errors="ignore"),
+                                    "message": message,
+                                    "completed": existing.get("completed"),
+                                    "total": existing.get("total"),
+                                    "percent": percent,
+                                    "phase": phase,
                                 }
 
                     try:
                         models = await self.get_available_models()
                         if model_name in models:
+                            # Preserve the previous phase to help frontend track completion properly
+                            previous_status = self.pull_status.get(model_name, {})
+                            previous_phase = previous_status.get("phase", "downloading")
+                            
                             self.pull_status[model_name] = {
                                 "model": model_name,
                                 "state": "completed",
@@ -174,6 +204,9 @@ class OllamaService:
                                 "percent": 100,
                                 "completed": 1,
                                 "total": 1,
+                                "phase": "completed",
+                                "previous_phase": previous_phase,
+                                "completed_at": time.time(),
                             }
                         else:
                             self.pull_status[model_name] = {
@@ -210,11 +243,36 @@ class OllamaService:
     def list_active_pulls(self) -> Dict[str, Dict[str, Any]]:
         """Return all pulls that are not completed or errored."""
         active: Dict[str, Dict[str, Any]] = {}
+        current_time = time.time()
+        
         for model, status in self.pull_status.items():
             state = status.get("state")
-            if state not in ("completed", "error", "idle"):
+            if state in ("downloading", "starting"):
                 active[model] = status
+            elif state == "completed":
+                completed_at = status.get("completed_at", 0)
+                if current_time - completed_at < 5.0:
+                    active[model] = status
+                
+        self._cleanup_old_completed_models(current_time)
+        
         return active
+    
+    def _cleanup_old_completed_models(self, current_time: float):
+        """Remove completed models that are older than 30 seconds from tracking."""
+        models_to_remove = []
+        for model, status in self.pull_status.items():
+            if status.get("state") == "completed":
+                completed_at = status.get("completed_at", 0)
+                if current_time - completed_at > 30.0:  # 30 seconds cleanup threshold
+                    models_to_remove.append(model)
+        
+        for model in models_to_remove:
+            self.pull_status.pop(model, None)
+            # Also clean up any finished tasks
+            task = self.pull_tasks.pop(model, None)
+            if task and not task.done():
+                task.cancel()
 
     async def generate_response(self, query: str, context_chunks: List[ContextChunk] = None, conversation_context: str = "") -> str:
         """ Generate a response using Ollama with optional context from RAG and conversation history """

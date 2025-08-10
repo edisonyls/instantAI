@@ -18,6 +18,7 @@ import {
   startBackgroundPull,
   listActivePulls,
   deleteModel,
+  getAvailableModels,
 } from "../services/api";
 import { showToast } from "../components/ui/Toaster";
 
@@ -29,9 +30,13 @@ export const Settings: React.FC = () => {
   const [pullingModel, setPullingModel] = useState<string | null>(null);
   const [pullProgress, setPullProgress] = useState<Record<string, string>>({});
   const [pullPercents, setPullPercents] = useState<Record<string, number>>({});
+  const [verifyingModels, setVerifyingModels] = useState<Set<string>>(
+    new Set()
+  );
   const [error, setError] = useState<string | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshTimeout, setRefreshTimeout] = useState<number | null>(null);
 
   // Note: Per-agent settings are edited on the agent page. Global overrides removed from here.
 
@@ -65,6 +70,38 @@ export const Settings: React.FC = () => {
     }
   };
 
+  const updateAvailableModels = async () => {
+    try {
+      const modelsResponse = await getAvailableModels();
+      setSystemInfo((prev) =>
+        prev
+          ? {
+              ...prev,
+              ai_configuration: {
+                ...prev.ai_configuration,
+                available_models: modelsResponse.available_models,
+              },
+            }
+          : null
+      );
+    } catch (err) {
+      console.error("Failed to update available models:", err);
+    }
+  };
+
+  const debouncedRefreshSystemInfo = () => {
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+    }
+
+    const newTimeout = window.setTimeout(() => {
+      updateAvailableModels();
+      setRefreshTimeout(null);
+    }, 1000);
+
+    setRefreshTimeout(newTimeout);
+  };
+
   useEffect(() => {
     const loadData = async () => {
       await Promise.all([fetchHealthStatus(), fetchSystemInfo()]);
@@ -85,17 +122,79 @@ export const Settings: React.FC = () => {
           });
           return next;
         });
-        // update percents
-        setPullPercents(() => {
-          const next: Record<string, number> = {};
+        setPullPercents((prevPercents) => {
+          const next: Record<string, number> = { ...prevPercents };
+          const activeSet = new Set<string>(
+            Object.values(active || {}).map((st: any) => st.model)
+          );
+          const newVerifyingModels = new Set<string>();
+
+          // update active (never let percent go backwards; treat verifying as 100%)
           Object.values(active || {}).forEach((st: any) => {
+            const prevVal = prevPercents[st.model] ?? 0;
+            let incoming: number | null = null;
             if (typeof st.percent === "number") {
-              next[st.model] = Math.max(
-                0,
-                Math.min(100, Math.round(st.percent))
-              );
+              incoming = Math.max(0, Math.min(100, Math.round(st.percent)));
+            }
+
+            // Check if this model is in verification phase
+            const isVerifying =
+              st.phase === "verifying" ||
+              (() => {
+                const message: string = (st.message || st.status || "")
+                  .toString()
+                  .toLowerCase();
+                return (
+                  message.includes("verify") ||
+                  message.includes("sha256") ||
+                  message.includes("digest")
+                );
+              })();
+
+            if (isVerifying) {
+              newVerifyingModels.add(st.model);
+              next[st.model] = Math.max(prevVal, 100);
+            } else if (incoming !== null) {
+              next[st.model] = Math.max(prevVal, incoming);
+            } else {
+              if (prevVal > 0) next[st.model] = prevVal;
             }
           });
+
+          // Update verifying state
+          setVerifyingModels(newVerifyingModels);
+          const completedNow: string[] = [];
+          Object.keys(prevPercents).forEach((model) => {
+            if (!activeSet.has(model)) {
+              if (prevPercents[model] < 100) {
+                completedNow.push(model);
+              }
+              delete next[model];
+            }
+          });
+
+          // Also check for models that show as completed in active pulls
+          Object.values(active || {}).forEach((st: any) => {
+            if (st.state === "completed" && st.phase === "completed") {
+              if (
+                !completedNow.includes(st.model) &&
+                prevPercents[st.model] !== undefined
+              ) {
+                completedNow.push(st.model);
+                delete next[st.model];
+              }
+            }
+          });
+
+          if (completedNow.length > 0) {
+            setPullProgress((p) => {
+              const np = { ...p };
+              completedNow.forEach((m) => (np[m] = "Completed"));
+              return np;
+            });
+            // refresh installed list shortly after completion with debouncing
+            debouncedRefreshSystemInfo();
+          }
           return next;
         });
       } catch {}
@@ -104,8 +203,15 @@ export const Settings: React.FC = () => {
     poll();
     return () => {
       if (timer) window.clearTimeout(timer);
+      if (refreshTimeout) clearTimeout(refreshTimeout);
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+    };
+  }, [refreshTimeout]);
 
   const refreshAll = async () => {
     setRefreshing(true);
@@ -326,7 +432,7 @@ export const Settings: React.FC = () => {
                             [name]: "Starting...",
                           }));
                           setPullingModel(null);
-                          setTimeout(fetchSystemInfo, 2000);
+                          debouncedRefreshSystemInfo();
                         } catch {
                           setPullProgress((p) => ({ ...p, [name]: "Error" }));
                           setPullingModel(null);
@@ -404,7 +510,9 @@ export const Settings: React.FC = () => {
                                     />
                                   </div>
                                   <div className="text-[10px] text-gray-600 text-right">
-                                    {pullPercents[m] ?? 0}%
+                                    {verifyingModels.has(m)
+                                      ? "Verifying..."
+                                      : `${pullPercents[m] ?? 0}%`}
                                   </div>
                                 </div>
                               </div>
@@ -419,9 +527,19 @@ export const Settings: React.FC = () => {
                                   title="Delete"
                                   className="p-1.5 rounded hover:bg-red-50 text-red-600"
                                   onClick={async () => {
+                                    if (
+                                      m ===
+                                      systemInfo.ai_configuration.ollama_model
+                                    ) {
+                                      showToast(
+                                        "Cannot delete the default model",
+                                        "error"
+                                      );
+                                      return;
+                                    }
                                     try {
                                       await deleteModel(m);
-                                      await fetchSystemInfo();
+                                      await updateAvailableModels();
                                       showToast(
                                         `Model ${m} has been deleted`,
                                         "success"
@@ -456,7 +574,7 @@ export const Settings: React.FC = () => {
                                       [m]: "Starting...",
                                     }));
                                     setPullingModel(null);
-                                    setTimeout(fetchSystemInfo, 2000);
+                                    debouncedRefreshSystemInfo();
                                   } catch (e) {
                                     setPullProgress((p) => ({
                                       ...p,
