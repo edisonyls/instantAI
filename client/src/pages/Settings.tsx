@@ -19,6 +19,7 @@ import {
   listActivePulls,
   deleteModel,
 } from "../services/api";
+import { showToast } from "../components/ui/Toaster";
 
 export const Settings: React.FC = () => {
   const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
@@ -27,6 +28,7 @@ export const Settings: React.FC = () => {
   const [infoLoading, setInfoLoading] = useState(true);
   const [pullingModel, setPullingModel] = useState<string | null>(null);
   const [pullProgress, setPullProgress] = useState<Record<string, string>>({});
+  const [pullPercents, setPullPercents] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -80,6 +82,19 @@ export const Settings: React.FC = () => {
           const next = { ...prev };
           Object.values(active || {}).forEach((st) => {
             next[st.model] = st.message || st.state;
+          });
+          return next;
+        });
+        // update percents
+        setPullPercents(() => {
+          const next: Record<string, number> = {};
+          Object.values(active || {}).forEach((st: any) => {
+            if (typeof st.percent === "number") {
+              next[st.model] = Math.max(
+                0,
+                Math.min(100, Math.round(st.percent))
+              );
+            }
           });
           return next;
         });
@@ -371,13 +386,28 @@ export const Settings: React.FC = () => {
                             (pullProgress[m] &&
                               pullProgress[m] !== "Completed" &&
                               pullProgress[m] !== "Error") ? (
-                              <button
-                                aria-label="Downloading"
-                                disabled
-                                className="p-1.5 rounded text-gray-400"
-                              >
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              </button>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  aria-label="Downloading"
+                                  disabled
+                                  className="p-1.5 rounded text-gray-400"
+                                >
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                </button>
+                                <div className="w-24">
+                                  <div className="h-1.5 bg-gray-200 rounded">
+                                    <div
+                                      className="h-1.5 bg-blue-600 rounded"
+                                      style={{
+                                        width: `${pullPercents[m] ?? 0}%`,
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="text-[10px] text-gray-600 text-right">
+                                    {pullPercents[m] ?? 0}%
+                                  </div>
+                                </div>
+                              </div>
                             ) : installed ? (
                               <div className="flex items-center space-x-2">
                                 <CheckCircle
@@ -392,9 +422,15 @@ export const Settings: React.FC = () => {
                                     try {
                                       await deleteModel(m);
                                       await fetchSystemInfo();
+                                      showToast(
+                                        `Model ${m} has been deleted`,
+                                        "success"
+                                      );
                                     } catch (e) {
-                                      // eslint-disable-next-line no-alert
-                                      alert(`Failed to delete ${m}`);
+                                      showToast(
+                                        `Failed to delete ${m}`,
+                                        "error"
+                                      );
                                     }
                                   }}
                                 >
