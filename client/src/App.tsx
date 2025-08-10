@@ -4,6 +4,7 @@ import { Header } from "./components/Layout/Header";
 import { Dashboard } from "./pages/Dashboard";
 import { PublicChat } from "./pages/PublicChat";
 import { Settings } from "./pages/Settings";
+import { Models } from "./pages/Models";
 import { Toaster } from "./components/ui/Toaster";
 import "./App.css";
 
@@ -24,6 +25,7 @@ function App() {
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/models" element={<Models />} />
                   <Route path="/settings" element={<Settings />} />
                 </Routes>
               </main>

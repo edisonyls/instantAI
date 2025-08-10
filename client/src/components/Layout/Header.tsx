@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Home, Settings, Brain } from "lucide-react";
+import { Home, Settings, Brain, Cpu } from "lucide-react";
 import { cn } from "../../utils/cn";
 
 export const Header: React.FC = () => {
@@ -8,6 +8,7 @@ export const Header: React.FC = () => {
 
   const navigation = [
     { name: "Dashboard", href: "/", icon: Home },
+    { name: "Models", href: "/models", icon: Cpu },
     { name: "System Info", href: "/settings", icon: Settings },
   ];
 

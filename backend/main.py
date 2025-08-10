@@ -704,25 +704,107 @@ async def cancel_model_pull(model: str):
 
 @app.get("/api/models")
 async def get_available_models():
-    """Get list of available models"""
+    """Get list of available models with usage information"""
     try:
         available_models = await ollama_service.get_available_models()
-        return {"available_models": available_models}
+        models_with_usage = []
+        
+        async with database_service.get_session() as session:
+            for model_name in available_models:
+                # Get agents using this model
+                result = await session.execute(
+                    select(KnowledgeBase).where(KnowledgeBase.model == model_name)
+                )
+                agents_using_model = result.scalars().all()
+                
+                # Check if this is the system default
+                is_system_default = model_name == settings.OLLAMA_MODEL
+                
+                models_with_usage.append({
+                    "name": model_name,
+                    "is_system_default": is_system_default,
+                    "in_use": len(agents_using_model) > 0 or is_system_default,
+                    "usage_count": len(agents_using_model),
+                    "agents": [
+                        {
+                            "id": str(agent.id),
+                            "name": agent.name,
+                            "agent_type": agent.agent_type
+                        }
+                        for agent in agents_using_model
+                    ]
+                })
+        
+        return {"models": models_with_usage}
     except Exception as e:
         logger.error(f"Error getting available models: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to get available models: {str(e)}")
 
 
+@app.get("/api/models/{model}/usage")
+async def get_model_usage(model: str):
+    """Get which agents are using a specific model"""
+    try:
+        async with database_service.get_session() as session:
+            result = await session.execute(
+                select(KnowledgeBase).where(KnowledgeBase.model == model)
+            )
+            agents_using_model = result.scalars().all()
+            
+            return {
+                "model": model,
+                "in_use": len(agents_using_model) > 0,
+                "usage_count": len(agents_using_model),
+                "agents": [
+                    {
+                        "id": str(agent.id),
+                        "name": agent.name,
+                        "description": agent.description,
+                        "agent_type": agent.agent_type
+                    }
+                    for agent in agents_using_model
+                ]
+            }
+    except Exception as e:
+        logger.error(f"Error getting model usage for {model}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get model usage: {str(e)}")
+
+
 @app.delete("/api/models")
 async def delete_model(model: str):
     """Delete a model installed in Ollama by name"""
     try:
+        # Check if this is the system default model
         if model == settings.OLLAMA_MODEL:
             raise HTTPException(
                 status_code=403, detail="Cannot delete the default model configured for the system")
+        
+        # Check if any agents are using this model
+        async with database_service.get_session() as session:
+            result = await session.execute(
+                select(KnowledgeBase).where(KnowledgeBase.model == model)
+            )
+            agents_using_model = result.scalars().all()
+            
+            if agents_using_model:
+                agent_names = [agent.name for agent in agents_using_model]
+                raise HTTPException(
+                    status_code=409, 
+                    detail={
+                        "message": f"Cannot delete model '{model}' because it is currently in use by {len(agents_using_model)} agent(s)",
+                        "agents_using_model": agent_names,
+                        "suggestion": "Please delete or reconfigure the following agents first: " + ", ".join(agent_names)
+                    }
+                )
+        
+        # If no agents are using the model, proceed with deletion
         await ollama_service.delete_model(model)
-        return {"message": f"Model {model} deleted"}
+        return {"message": f"Model {model} deleted successfully"}
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting model {model}: {str(e)}")
         raise HTTPException(
