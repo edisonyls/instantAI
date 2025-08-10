@@ -253,18 +253,27 @@ class OllamaService:
                 completed_at = status.get("completed_at", 0)
                 if current_time - completed_at < 5.0:
                     active[model] = status
+            elif state == "cancelled":
+                cancelled_at = status.get("cancelled_at", 0)
+                if current_time - cancelled_at < 3.0:
+                    active[model] = status
                 
         self._cleanup_old_completed_models(current_time)
         
         return active
     
     def _cleanup_old_completed_models(self, current_time: float):
-        """Remove completed models that are older than 30 seconds from tracking."""
+        """Remove completed and cancelled models that are older than 30 seconds from tracking."""
         models_to_remove = []
         for model, status in self.pull_status.items():
-            if status.get("state") == "completed":
+            state = status.get("state")
+            if state == "completed":
                 completed_at = status.get("completed_at", 0)
-                if current_time - completed_at > 30.0:  # 30 seconds cleanup threshold
+                if current_time - completed_at > 30.0: 
+                    models_to_remove.append(model)
+            elif state == "cancelled":
+                cancelled_at = status.get("cancelled_at", 0)
+                if current_time - cancelled_at > 30.0: 
                     models_to_remove.append(model)
         
         for model in models_to_remove:
@@ -273,6 +282,49 @@ class OllamaService:
             task = self.pull_tasks.pop(model, None)
             if task and not task.done():
                 task.cancel()
+
+    def cancel_pull(self, model_name: str) -> Dict[str, Any]:
+        """Cancel an ongoing model pull."""
+        task = self.pull_tasks.get(model_name)
+        
+        if not task:
+            return {
+                "model": model_name,
+                "state": "error",
+                "message": "No active pull found for this model"
+            }
+        
+        if task.done():
+            current_status = self.pull_status.get(model_name, {})
+            if current_status.get("state") == "completed":
+                return {
+                    "model": model_name,
+                    "state": "completed",
+                    "message": "Model download already completed"
+                }
+            else:
+                return {
+                    "model": model_name,
+                    "state": "error", 
+                    "message": "Pull task already finished"
+                }
+        
+
+        task.cancel()
+        
+        self.pull_status[model_name] = {
+            "model": model_name,
+            "state": "cancelled",
+            "message": "Download cancelled by user",
+            "percent": 0,
+            "completed": 0,
+            "total": None,
+            "cancelled_at": time.time(),
+        }
+        
+        self.pull_tasks.pop(model_name, None)
+        
+        return self.pull_status[model_name]
 
     async def generate_response(self, query: str, context_chunks: List[ContextChunk] = None, conversation_context: str = "") -> str:
         """ Generate a response using Ollama with optional context from RAG and conversation history """

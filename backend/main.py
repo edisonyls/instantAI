@@ -671,6 +671,17 @@ async def list_active_pulls():
         raise HTTPException(
             status_code=500, detail=f"Failed to list active pulls: {str(e)}")
 
+@app.delete("/api/models/pull")
+async def cancel_model_pull(model: str):
+    """Cancel an ongoing model pull."""
+    try:
+        result = ollama_service.cancel_pull(model)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error cancelling pull for {model}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to cancel pull: {str(e)}")
+
 @app.get("/api/models")
 async def get_available_models():
     """Get list of available models"""

@@ -380,7 +380,17 @@ export async function getAvailableModels(): Promise<{
   return response.json();
 }
 
-// Delete a model installed in Ollama
+export async function cancelModelPull(model: string): Promise<PullStatus> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/models/pull?model=${encodeURIComponent(model)}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to cancel model pull: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 export async function deleteModel(model: string): Promise<{ message: string }> {
   const response = await fetch(
     `${API_BASE_URL}/api/models?model=${encodeURIComponent(model)}`,

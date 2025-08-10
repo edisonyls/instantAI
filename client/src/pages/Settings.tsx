@@ -9,6 +9,7 @@ import {
   CheckCircle,
   Loader2,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   getHealthStatus,
@@ -19,6 +20,7 @@ import {
   listActivePulls,
   deleteModel,
   getAvailableModels,
+  cancelModelPull,
 } from "../services/api";
 import { showToast } from "../components/ui/Toaster";
 
@@ -37,9 +39,11 @@ export const Settings: React.FC = () => {
   const [infoError, setInfoError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTimeout, setRefreshTimeout] = useState<number | null>(null);
+  const [cancellingModels, setCancellingModels] = useState<Set<string>>(
+    new Set()
+  );
 
-  // Note: Per-agent settings are edited on the agent page. Global overrides removed from here.
-
+  // Note: Per-agent settings are edited on the agent page. Global overrides removed from here
   const fetchHealthStatus = async () => {
     try {
       setLoading(true);
@@ -100,6 +104,37 @@ export const Settings: React.FC = () => {
     }, 1000);
 
     setRefreshTimeout(newTimeout);
+  };
+
+  const handleCancelDownload = async (modelName: string) => {
+    try {
+      setCancellingModels((prev) => new Set(prev).add(modelName));
+      await cancelModelPull(modelName);
+      setPullProgress((prev) => ({
+        ...prev,
+        [modelName]: "Cancelled",
+      }));
+      setPullPercents((prev) => {
+        const next = { ...prev };
+        delete next[modelName];
+        return next;
+      });
+      setVerifyingModels((prev) => {
+        const next = new Set(prev);
+        next.delete(modelName);
+        return next;
+      });
+      showToast(`Download of ${modelName} cancelled`, "success");
+    } catch (error) {
+      console.error("Failed to cancel download:", error);
+      showToast(`Failed to cancel download of ${modelName}`, "error");
+    } finally {
+      setCancellingModels((prev) => {
+        const next = new Set(prev);
+        next.delete(modelName);
+        return next;
+      });
+    }
   };
 
   useEffect(() => {
@@ -181,6 +216,14 @@ export const Settings: React.FC = () => {
                 prevPercents[st.model] !== undefined
               ) {
                 completedNow.push(st.model);
+                delete next[st.model];
+              }
+            } else if (st.state === "cancelled") {
+              if (prevPercents[st.model] !== undefined) {
+                setPullProgress((p) => ({
+                  ...p,
+                  [st.model]: "Cancelled",
+                }));
                 delete next[st.model];
               }
             }
@@ -491,14 +534,25 @@ export const Settings: React.FC = () => {
                             {pullingModel === m ||
                             (pullProgress[m] &&
                               pullProgress[m] !== "Completed" &&
-                              pullProgress[m] !== "Error") ? (
+                              pullProgress[m] !== "Error" &&
+                              pullProgress[m] !== "Cancelled") ? (
                               <div className="flex items-center space-x-2">
                                 <button
-                                  aria-label="Downloading"
-                                  disabled
-                                  className="p-1.5 rounded text-gray-400"
+                                  aria-label="Cancel download"
+                                  title="Cancel download"
+                                  onClick={() => handleCancelDownload(m)}
+                                  disabled={cancellingModels.has(m)}
+                                  className={`p-1.5 rounded ${
+                                    cancellingModels.has(m)
+                                      ? "text-gray-400 cursor-not-allowed"
+                                      : "text-red-600 hover:bg-red-50"
+                                  }`}
                                 >
-                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  {cancellingModels.has(m) ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <X className="w-4 h-4" />
+                                  )}
                                 </button>
                                 <div className="w-24">
                                   <div className="h-1.5 bg-gray-200 rounded">
