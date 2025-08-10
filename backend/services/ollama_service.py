@@ -23,6 +23,8 @@ class OllamaService:
         self.model = settings.OLLAMA_MODEL
         self.is_initialized = False
         self.session = None
+        self.pull_tasks: Dict[str, asyncio.Task] = {}
+        self.pull_status: Dict[str, Dict[str, Any]] = {}
 
     async def initialize(self):
         """Initialize the Ollama service"""
@@ -67,8 +69,10 @@ class OllamaService:
                     if self.model not in available_models:
                         logger.info(
                             f"Model {self.model} not found. Available models: {available_models}")
-                        logger.info(f"Attempting to pull model {self.model}")
-                        await self._pull_model(self.model)
+                        logger.info(
+                            f"Attempting to pull model {self.model} in background")
+                        # Start background pull without blocking
+                        await self.start_pull_in_background(self.model)
                     else:
                         logger.info(f"Model {self.model} is available")
                 else:
@@ -77,63 +81,140 @@ class OllamaService:
         except Exception as e:
             raise Exception(f"Error checking model availability: {str(e)}")
 
-    async def _pull_model(self, model_name: str):
-        """Pull a model from Ollama repository"""
-        try:
-            async with self.session.post(
-                f"{self.base_url}/api/pull",
-                json={"name": model_name}
-            ) as response:
-                if response.status == 200:
-                    logger.info(f"Successfully pulled model {model_name}")
-                else:
-                    raise Exception(
-                        f"Failed to pull model {model_name}: {response.status}")
-        except Exception as e:
-            raise Exception(f"Error pulling model {model_name}: {str(e)}")
-
-    async def pull_model(self, model_name: str) -> None:
-        """Public method to pull an Ollama model by name"""
+    async def start_pull_in_background(self, model_name: str) -> Dict[str, Any]:
+        """Start pulling a model in the background and track progress/state."""
         if not self.session:
             self.session = aiohttp.ClientSession()
-        await self._pull_model(model_name)
 
-    async def stream_pull_model(self, model_name: str):
-        """Stream pull progress from Ollama as dict events"""
-        if not self.session:
-            self.session = aiohttp.ClientSession()
         try:
-            async with self.session.post(
-                f"{self.base_url}/api/pull",
-                json={"name": model_name},
-                timeout=aiohttp.ClientTimeout(total=None)
-            ) as response:
-                if response.status != 200:
-                    text = await response.text()
-                    yield {"error": f"Failed to pull: {response.status} {text}"}
-                    return
-                buffer = b""
-                async for chunk in response.content.iter_chunked(1024):
-                    buffer += chunk
-                    while b"\n" in buffer:
-                        line, buffer = buffer.split(b"\n", 1)
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            event = json.loads(line.decode("utf-8"))
-                            yield event
-                        except Exception:
-                            # yield raw line if not json
-                            yield {"message": line.decode("utf-8", errors="ignore")}
-                # flush any remaining
-                if buffer.strip():
+            installed = await self.get_available_models()
+            if model_name in installed:
+                status = {
+                    "model": model_name,
+                    "state": "completed",
+                    "message": "Already installed",
+                    "percent": 100,
+                    "completed": 1,
+                    "total": 1,
+                }
+                self.pull_status[model_name] = status
+                return status
+        except Exception:
+            pass
+
+        # If a task exists and is running, return current status
+        task = self.pull_tasks.get(model_name)
+        if task and not task.done():
+            return self.pull_status.get(model_name, {"model": model_name, "state": "starting"})
+
+        self.pull_status[model_name] = {
+            "model": model_name,
+            "state": "starting",
+            "message": "Starting...",
+            "percent": 0,
+            "completed": 0,
+            "total": None,
+        }
+
+        async def _pull_and_track():
+            try:
+                async with self.session.post(
+                    f"{self.base_url}/api/pull",
+                    json={"name": model_name},
+                    timeout=aiohttp.ClientTimeout(total=None),
+                ) as response:
+                    if response.status != 200:
+                        text = await response.text()
+                        self.pull_status[model_name] = {
+                            "model": model_name,
+                            "state": "error",
+                            "message": f"Failed to start pull: {response.status} {text}",
+                        }
+                        return
+
+                    buffer = b""
+                    async for chunk in response.content.iter_chunked(1024):
+                        buffer += chunk
+                        while b"\n" in buffer:
+                            line, buffer = buffer.split(b"\n", 1)
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                event = json.loads(line.decode("utf-8"))
+                                status_text = event.get(
+                                    "status") or event.get("message") or ""
+                                completed = event.get("completed")
+                                total = event.get("total")
+                                percent = None
+                                if isinstance(completed, int) and isinstance(total, int) and total > 0:
+                                    percent = int((completed / total) * 100)
+                                self.pull_status[model_name] = {
+                                    "model": model_name,
+                                    "state": "downloading",
+                                    "message": status_text,
+                                    "completed": completed,
+                                    "total": total,
+                                    "percent": percent,
+                                }
+                            except Exception:
+                                self.pull_status[model_name] = {
+                                    "model": model_name,
+                                    "state": "downloading",
+                                    "message": line.decode("utf-8", errors="ignore"),
+                                }
+
                     try:
-                        yield json.loads(buffer.decode("utf-8"))
-                    except Exception:
-                        yield {"message": buffer.decode("utf-8", errors="ignore")}
-        except Exception as e:
-            yield {"error": str(e)}
+                        models = await self.get_available_models()
+                        if model_name in models:
+                            self.pull_status[model_name] = {
+                                "model": model_name,
+                                "state": "completed",
+                                "message": "Completed",
+                                "percent": 100,
+                                "completed": 1,
+                                "total": 1,
+                            }
+                        else:
+                            self.pull_status[model_name] = {
+                                "model": model_name,
+                                "state": "error",
+                                "message": "Pull finished but model not listed",
+                            }
+                    except Exception as e:
+                        self.pull_status[model_name] = {
+                            "model": model_name,
+                            "state": "error",
+                            "message": f"Verification error: {str(e)}",
+                        }
+            except Exception as e:
+                self.pull_status[model_name] = {
+                    "model": model_name,
+                    "state": "error",
+                    "message": str(e),
+                }
+
+        self.pull_tasks[model_name] = asyncio.create_task(_pull_and_track())
+        return self.pull_status[model_name]
+
+    def get_pull_status(self, model_name: str) -> Dict[str, Any]:
+        """Return current status for a model pull if tracked."""
+        status = self.pull_status.get(model_name)
+        if not status:
+            return {"model": model_name, "state": "idle"}
+        task = self.pull_tasks.get(model_name)
+        if task and task.done():
+            return status
+        return status
+
+    def list_active_pulls(self) -> Dict[str, Dict[str, Any]]:
+        """Return all pulls that are not completed or errored."""
+        active: Dict[str, Dict[str, Any]] = {}
+        for model, status in self.pull_status.items():
+            state = status.get("state")
+            if state not in ("completed", "error", "idle"):
+                active[model] = status
+        return active
 
     async def generate_response(self, query: str, context_chunks: List[ContextChunk] = None, conversation_context: str = "") -> str:
         """ Generate a response using Ollama with optional context from RAG and conversation history """
@@ -186,7 +267,8 @@ Answer:"""
             # Build context from chunks
             context_text = ""
             for chunk in context_chunks:
-                source = chunk.metadata.get('filename', 'Unknown') if chunk.metadata else 'Unknown'
+                source = chunk.metadata.get(
+                    'filename', 'Unknown') if chunk.metadata else 'Unknown'
                 context_text += f"Source: {source}\n"
                 context_text += f"Content: {chunk.content}\n"
                 context_text += f"Relevance: {chunk.similarity_score:.2f}\n\n"
@@ -235,7 +317,7 @@ Answer:"""
             async with self.session.post(
                 f"{self.base_url}/api/generate",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=90)  # 90 second timeout
+                timeout=aiohttp.ClientTimeout(total=90)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -275,8 +357,9 @@ Answer:"""
             async with self.session.get(f"{self.base_url}/api/tags") as response:
                 if response.status == 200:
                     data = await response.json()
-                    available_models = [model['name'] for model in data.get('models', [])]
-                    
+                    available_models = [model['name']
+                                        for model in data.get('models', [])]
+
                     # Check if the configured model is available
                     if self.model in available_models:
                         return {

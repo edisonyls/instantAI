@@ -11,7 +11,8 @@ import {
   HealthStatus,
   getSystemInfo,
   SystemInfo,
-  API_BASE_URL,
+  startBackgroundPull,
+  listActivePulls,
 } from "../services/api";
 
 export const Settings: React.FC = () => {
@@ -57,13 +58,33 @@ export const Settings: React.FC = () => {
     }
   };
 
-  // Removed global Max Retrieved Chunks editor in favor of per-agent settings
-
   useEffect(() => {
     const loadData = async () => {
       await Promise.all([fetchHealthStatus(), fetchSystemInfo()]);
     };
     loadData();
+  }, []);
+
+  // On mount, resume/poll any active pulls so progress survives refresh
+  useEffect(() => {
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const { active } = await listActivePulls();
+        setPullProgress((prev) => {
+          const next = { ...prev };
+          Object.values(active || {}).forEach((st) => {
+            next[st.model] = st.message || st.state;
+          });
+          return next;
+        });
+      } catch {}
+      timer = window.setTimeout(poll, 1500);
+    };
+    poll();
+    return () => {
+      if (timer) window.clearTimeout(timer);
+    };
   }, []);
 
   const refreshAll = async () => {
@@ -279,47 +300,13 @@ export const Settings: React.FC = () => {
                             ...p,
                             [name]: "Starting...",
                           }));
-                          const res = await fetch(
-                            `${API_BASE_URL}/api/models/pull/stream?model=${encodeURIComponent(name)}`
-                          );
-                          if (!res.ok || !res.body)
-                            throw new Error("Failed to start stream");
-                          const reader = res.body.getReader();
-                          const decoder = new TextDecoder();
-                          let buffer = "";
-                          while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            buffer += decoder.decode(value, { stream: true });
-                            let idx;
-                            while ((idx = buffer.indexOf("\n")) >= 0) {
-                              const line = buffer.slice(0, idx).trim();
-                              buffer = buffer.slice(idx + 1);
-                              if (!line) continue;
-                              try {
-                                const evt = JSON.parse(line);
-                                const status =
-                                  evt.status ||
-                                  evt.message ||
-                                  JSON.stringify(evt);
-                                setPullProgress((p) => ({
-                                  ...p,
-                                  [name]: status,
-                                }));
-                              } catch {
-                                setPullProgress((p) => ({
-                                  ...p,
-                                  [name]: line,
-                                }));
-                              }
-                            }
-                          }
+                          await startBackgroundPull(name);
                           setPullProgress((p) => ({
                             ...p,
-                            [name]: "Completed",
+                            [name]: "Starting...",
                           }));
                           setPullingModel(null);
-                          await fetchSystemInfo();
+                          setTimeout(fetchSystemInfo, 2000);
                         } catch {
                           setPullProgress((p) => ({ ...p, [name]: "Error" }));
                           setPullingModel(null);
@@ -375,7 +362,15 @@ export const Settings: React.FC = () => {
                           </div>
                           <button
                             className="btn btn-primary btn-sm"
-                            disabled={pullingModel === m || installed}
+                            disabled={
+                              pullingModel === m ||
+                              !!installed ||
+                              !!(
+                                pullProgress[m] &&
+                                pullProgress[m] !== "Completed" &&
+                                pullProgress[m] !== "Error"
+                              )
+                            }
                             onClick={async () => {
                               try {
                                 setPullingModel(m);
@@ -383,49 +378,13 @@ export const Settings: React.FC = () => {
                                   ...p,
                                   [m]: "Starting...",
                                 }));
-                                const res = await fetch(
-                                  `${API_BASE_URL}/api/models/pull/stream?model=${encodeURIComponent(m)}`
-                                );
-                                if (!res.ok || !res.body)
-                                  throw new Error("Failed to start stream");
-                                const reader = res.body.getReader();
-                                const decoder = new TextDecoder();
-                                let buffer = "";
-                                while (true) {
-                                  const { done, value } = await reader.read();
-                                  if (done) break;
-                                  buffer += decoder.decode(value, {
-                                    stream: true,
-                                  });
-                                  let idx;
-                                  while ((idx = buffer.indexOf("\n")) >= 0) {
-                                    const line = buffer.slice(0, idx).trim();
-                                    buffer = buffer.slice(idx + 1);
-                                    if (!line) continue;
-                                    try {
-                                      const evt = JSON.parse(line);
-                                      const status =
-                                        evt.status ||
-                                        evt.message ||
-                                        JSON.stringify(evt);
-                                      setPullProgress((p) => ({
-                                        ...p,
-                                        [m]: status,
-                                      }));
-                                    } catch {
-                                      setPullProgress((p) => ({
-                                        ...p,
-                                        [m]: line,
-                                      }));
-                                    }
-                                  }
-                                }
+                                await startBackgroundPull(m);
                                 setPullProgress((p) => ({
                                   ...p,
-                                  [m]: "Completed",
+                                  [m]: "Starting...",
                                 }));
                                 setPullingModel(null);
-                                await fetchSystemInfo();
+                                setTimeout(fetchSystemInfo, 2000);
                               } catch (e) {
                                 setPullProgress((p) => ({
                                   ...p,
@@ -438,7 +397,12 @@ export const Settings: React.FC = () => {
                           >
                             {installed
                               ? "Installed"
-                              : pullingModel === m
+                              : pullingModel === m ||
+                                  !!(
+                                    pullProgress[m] &&
+                                    pullProgress[m] !== "Completed" &&
+                                    pullProgress[m] !== "Error"
+                                  )
                                 ? "Downloading..."
                                 : "Download"}
                           </button>

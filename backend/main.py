@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, UploadFile, File, Header, Form
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 import json
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -386,7 +386,8 @@ async def public_chat_api(request: PublicChatRequest):
             if isinstance(cfg.get("max_retrieved_chunks"), int):
                 max_chunks_override = cfg.get("max_retrieved_chunks")
             if isinstance(cfg.get("similarity_threshold"), (int, float)):
-                similarity_threshold_override = float(cfg.get("similarity_threshold"))
+                similarity_threshold_override = float(
+                    cfg.get("similarity_threshold"))
 
         context_chunks = await rag_service.retrieve_context(
             query=request.message,
@@ -455,7 +456,7 @@ async def test_api_key(request: TestAPIKeyRequest):
             raise HTTPException(status_code=401, detail="Invalid API key")
 
         knowledge_base_id, api_key = result
-        
+
         return {
             "valid": True,
             "knowledge_base_id": knowledge_base_id,
@@ -635,28 +636,40 @@ async def update_system_settings(request: UpdateSystemSettingsRequest):
             status_code=500, detail=f"Error updating system settings: {str(e)}")
 
 
-@app.post("/api/models/pull")
-async def pull_model(model: str):
-    """Pull an Ollama model by name (e.g., 'gemma3:4b')."""
+@app.post("/api/models/pull/background")
+async def pull_model_background(model: str):
+    """Start pulling a model in the background and return initial status."""
     try:
-        await ollama_service.pull_model(model)
-        return {"message": f"Model {model} pull initiated"}
+        status = await ollama_service.start_pull_in_background(model)
+        return JSONResponse(content=status)
     except Exception as e:
-        logger.error(f"Error pulling model {model}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to pull model: {str(e)}")
+        logger.error(f"Error starting background pull for {model}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to start background pull: {str(e)}")
 
 
-@app.get("/api/models/pull/stream")
-async def pull_model_stream(model: str):
-    """Stream pull progress for a model as server-sent events (newline-delimited JSON)."""
-    async def event_generator():
-        try:
-            async for event in ollama_service.stream_pull_model(model):
-                yield (json.dumps(event) + "\n").encode("utf-8")
-        except Exception as e:
-            yield (json.dumps({"error": str(e)}) + "\n").encode("utf-8")
+@app.get("/api/models/pull/status")
+async def pull_model_status(model: str):
+    """Get current pull status for a specific model."""
+    try:
+        status = ollama_service.get_pull_status(model)
+        return JSONResponse(content=status)
+    except Exception as e:
+        logger.error(f"Error getting pull status for {model}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get pull status: {str(e)}")
 
-    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+@app.get("/api/models/pull/active")
+async def list_active_pulls():
+    """List all active pulls with their statuses."""
+    try:
+        active = ollama_service.list_active_pulls()
+        return JSONResponse(content={"active": active})
+    except Exception as e:
+        logger.error(f"Error listing active pulls: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list active pulls: {str(e)}")
 
 
 @app.get("/api/knowledge-bases/{kb_id}/settings")
@@ -667,7 +680,8 @@ async def get_agent_settings(kb_id: str):
             # Return defaults based on knowledge base type
             kb = await api_key_service.get_knowledge_base(kb_id)
             if not kb:
-                raise HTTPException(status_code=404, detail="Knowledge base not found")
+                raise HTTPException(
+                    status_code=404, detail="Knowledge base not found")
             return {
                 "knowledge_base_id": kb.id,
                 "agent_type": kb.agent_type,
@@ -684,7 +698,8 @@ async def get_agent_settings(kb_id: str):
         raise
     except Exception as e:
         logger.error(f"Error getting agent settings: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error fetching agent settings")
+        raise HTTPException(
+            status_code=500, detail="Error fetching agent settings")
 
 
 @app.put("/api/knowledge-bases/{kb_id}/settings")
@@ -692,15 +707,15 @@ async def update_agent_settings(kb_id: str, request: UpdateAgentSettingsRequest)
     try:
         kb = await api_key_service.get_knowledge_base(kb_id)
         if not kb:
-            raise HTTPException(status_code=404, detail="Knowledge base not found")
+            raise HTTPException(
+                status_code=404, detail="Knowledge base not found")
         # Enforce immutability of chunking settings after documents exist
         if kb.agent_type == "data_processing":
             cfg = request.config or {}
             # Determine if changing chunking parameters
-            changing_chunking = any(key in cfg for key in ["chunk_size", "chunk_overlap"])
+            changing_chunking = any(key in cfg for key in [
+                                    "chunk_size", "chunk_overlap"])
             if changing_chunking:
-                # Load current KB to check document counts
-                # Use rag_service.stats or KnowledgeBase totals
                 stats = await rag_service.get_knowledge_base_stats(kb_id)
                 if stats.get("total_documents", 0) > 0:
                     raise HTTPException(
@@ -719,7 +734,8 @@ async def update_agent_settings(kb_id: str, request: UpdateAgentSettingsRequest)
         raise
     except Exception as e:
         logger.error(f"Error updating agent settings: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error updating agent settings")
+        raise HTTPException(
+            status_code=500, detail="Error updating agent settings")
 
 if __name__ == "__main__":
     import uvicorn
