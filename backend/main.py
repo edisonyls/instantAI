@@ -25,6 +25,7 @@ try:
         AgentSettingsModel, UpdateAgentSettingsRequest
     )
     from backend.models.chat_models import ChatMessage, MessageRole
+    from backend.models.database_models import KnowledgeBase
     from backend.services.database_service import database_service
     from backend.services.api_key_service import api_key_service
     from backend.services.conversation_service import conversation_service
@@ -32,6 +33,7 @@ try:
     from backend.services.ollama_service import OllamaService
     from backend.services.document_processor import DocumentProcessor
     from backend.services.agent_settings_service import agent_settings_service
+    from sqlalchemy import select
 except ImportError:
     from config import settings
     from models.api_models import (
@@ -42,6 +44,7 @@ except ImportError:
         AgentSettingsModel, UpdateAgentSettingsRequest
     )
     from models.chat_models import ChatMessage, MessageRole
+    from models.database_models import KnowledgeBase
     from services.database_service import database_service
     from services.api_key_service import api_key_service
     from services.conversation_service import conversation_service
@@ -49,6 +52,7 @@ except ImportError:
     from services.ollama_service import OllamaService
     from services.document_processor import DocumentProcessor
     from services.agent_settings_service import agent_settings_service
+    from sqlalchemy import select
 
 # Configure logging
 logging.basicConfig(
@@ -377,6 +381,19 @@ async def public_chat_api(request: PublicChatRequest):
             session_id, max_messages=5
         )
 
+        # Get knowledge base to retrieve agent-specific model
+        async with database_service.get_session() as session:
+            kb_result = await session.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.id == knowledge_base_id)
+            )
+            kb = kb_result.scalar_one_or_none()
+            if not kb:
+                raise HTTPException(
+                    status_code=404, detail="Knowledge base not found")
+
+            agent_model = kb.model if kb.model else None
+
         # Load per-agent retrieval overrides if any
         agent_settings = await agent_settings_service.get_settings(knowledge_base_id)
         max_chunks_override = None
@@ -415,11 +432,12 @@ Answer the user's question based on the provided context. If the context doesn't
             session_id, user_message, knowledge_base_id, api_key
         )
 
-        # Generate response using Ollama
+        # Generate response using Ollama with agent-specific model
         response = await ollama_service.generate_response(
             query=request.message,
             context_chunks=context_chunks,
-            conversation_context=conversation_context
+            conversation_context=conversation_context,
+            model=agent_model
         )
 
         # Add assistant response to conversation
@@ -671,6 +689,7 @@ async def list_active_pulls():
         raise HTTPException(
             status_code=500, detail=f"Failed to list active pulls: {str(e)}")
 
+
 @app.delete("/api/models/pull")
 async def cancel_model_pull(model: str):
     """Cancel an ongoing model pull."""
@@ -682,6 +701,7 @@ async def cancel_model_pull(model: str):
         raise HTTPException(
             status_code=500, detail=f"Failed to cancel pull: {str(e)}")
 
+
 @app.get("/api/models")
 async def get_available_models():
     """Get list of available models"""
@@ -690,19 +710,23 @@ async def get_available_models():
         return {"available_models": available_models}
     except Exception as e:
         logger.error(f"Error getting available models: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get available models: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get available models: {str(e)}")
+
 
 @app.delete("/api/models")
 async def delete_model(model: str):
     """Delete a model installed in Ollama by name"""
     try:
         if model == settings.OLLAMA_MODEL:
-            raise HTTPException(status_code=403, detail="Cannot delete the default model configured for the system")
+            raise HTTPException(
+                status_code=403, detail="Cannot delete the default model configured for the system")
         await ollama_service.delete_model(model)
         return {"message": f"Model {model} deleted"}
     except Exception as e:
         logger.error(f"Error deleting model {model}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete model: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete model: {str(e)}")
 
 
 @app.get("/api/knowledge-bases/{kb_id}/settings")

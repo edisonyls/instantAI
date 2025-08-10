@@ -144,7 +144,8 @@ class OllamaService:
                                 continue
                             try:
                                 event = json.loads(line.decode("utf-8"))
-                                status_text = event.get("status") or event.get("message") or ""
+                                status_text = event.get(
+                                    "status") or event.get("message") or ""
                                 completed = event.get("completed")
                                 total = event.get("total")
                                 percent = None
@@ -194,9 +195,11 @@ class OllamaService:
                         models = await self.get_available_models()
                         if model_name in models:
                             # Preserve the previous phase to help frontend track completion properly
-                            previous_status = self.pull_status.get(model_name, {})
-                            previous_phase = previous_status.get("phase", "downloading")
-                            
+                            previous_status = self.pull_status.get(
+                                model_name, {})
+                            previous_phase = previous_status.get(
+                                "phase", "downloading")
+
                             self.pull_status[model_name] = {
                                 "model": model_name,
                                 "state": "completed",
@@ -244,7 +247,7 @@ class OllamaService:
         """Return all pulls that are not completed or errored."""
         active: Dict[str, Dict[str, Any]] = {}
         current_time = time.time()
-        
+
         for model, status in self.pull_status.items():
             state = status.get("state")
             if state in ("downloading", "starting"):
@@ -257,11 +260,11 @@ class OllamaService:
                 cancelled_at = status.get("cancelled_at", 0)
                 if current_time - cancelled_at < 3.0:
                     active[model] = status
-                
+
         self._cleanup_old_completed_models(current_time)
-        
+
         return active
-    
+
     def _cleanup_old_completed_models(self, current_time: float):
         """Remove completed and cancelled models that are older than 30 seconds from tracking."""
         models_to_remove = []
@@ -269,13 +272,13 @@ class OllamaService:
             state = status.get("state")
             if state == "completed":
                 completed_at = status.get("completed_at", 0)
-                if current_time - completed_at > 30.0: 
+                if current_time - completed_at > 30.0:
                     models_to_remove.append(model)
             elif state == "cancelled":
                 cancelled_at = status.get("cancelled_at", 0)
-                if current_time - cancelled_at > 30.0: 
+                if current_time - cancelled_at > 30.0:
                     models_to_remove.append(model)
-        
+
         for model in models_to_remove:
             self.pull_status.pop(model, None)
             # Also clean up any finished tasks
@@ -286,14 +289,14 @@ class OllamaService:
     def cancel_pull(self, model_name: str) -> Dict[str, Any]:
         """Cancel an ongoing model pull."""
         task = self.pull_tasks.get(model_name)
-        
+
         if not task:
             return {
                 "model": model_name,
                 "state": "error",
                 "message": "No active pull found for this model"
             }
-        
+
         if task.done():
             current_status = self.pull_status.get(model_name, {})
             if current_status.get("state") == "completed":
@@ -305,13 +308,12 @@ class OllamaService:
             else:
                 return {
                     "model": model_name,
-                    "state": "error", 
+                    "state": "error",
                     "message": "Pull task already finished"
                 }
-        
 
         task.cancel()
-        
+
         self.pull_status[model_name] = {
             "model": model_name,
             "state": "cancelled",
@@ -321,12 +323,10 @@ class OllamaService:
             "total": None,
             "cancelled_at": time.time(),
         }
-        
         self.pull_tasks.pop(model_name, None)
-        
         return self.pull_status[model_name]
 
-    async def generate_response(self, query: str, context_chunks: List[ContextChunk] = None, conversation_context: str = "") -> str:
+    async def generate_response(self, query: str, context_chunks: List[ContextChunk] = None, conversation_context: str = "", model: Optional[str] = None) -> str:
         """ Generate a response using Ollama with optional context from RAG and conversation history """
         if not self.is_initialized:
             await self.initialize()
@@ -336,8 +336,7 @@ class OllamaService:
             prompt = self._build_prompt(
                 query, context_chunks, conversation_context)
 
-            # Generate response
-            response = await self._generate_text(prompt)
+            response = await self._generate_text(prompt, model=model)
 
             return response
 
@@ -399,19 +398,22 @@ Answer:"""
 
         return prompt
 
-    async def _generate_text(self, prompt: str) -> str:
+    async def _generate_text(self, prompt: str, model: Optional[str] = None) -> str:
         """
         Generate text using Ollama API
 
         Args:
             prompt: Input prompt
+            model: Optional model to use (if None, uses default)
 
         Returns:
             Generated text
         """
         try:
+            model_to_use = model if model else self.model
+
             payload = {
-                "model": self.model,
+                "model": model_to_use,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
@@ -513,7 +515,8 @@ Answer:"""
                         task.cancel()
                 else:
                     text = await response.text()
-                    raise Exception(f"Failed to delete model {model_name}: {response.status} {text}")
+                    raise Exception(
+                        f"Failed to delete model {model_name}: {response.status} {text}")
         except Exception as e:
             logger.error(f"Error deleting model {model_name}: {str(e)}")
             raise
