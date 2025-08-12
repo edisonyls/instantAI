@@ -107,11 +107,6 @@ export const Models: React.FC = () => {
         if (!response.ok) return;
         const { active } = await response.json();
 
-        // Debug logging
-        if (Object.keys(active || {}).length > 0) {
-          console.log("Active downloads:", active);
-        }
-
         setPullProgress((prev) => {
           const next = { ...prev };
           Object.values(active || {}).forEach((st: any) => {
