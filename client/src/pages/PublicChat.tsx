@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Send, Bot, User, Key, AlertCircle } from "lucide-react";
 import { cn } from "../utils/cn";
 import { MarkdownContent } from "../components/ui/MarkdownContent";
+import { API_BASE_URL } from "../services/api";
 
 interface Message {
   id: string;
@@ -53,7 +54,7 @@ export const PublicChat: React.FC = () => {
     try {
       // Test the API key without counting as usage
       const response = await fetch(
-        "http://localhost:8000/api/public/test-key",
+        `${API_BASE_URL}/api/public/test-key`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -104,7 +105,7 @@ export const PublicChat: React.FC = () => {
     setError(null);
 
     try {
-      const response = await fetch("http://localhost:8000/api/public/chat", {
+      const response = await fetch(`${API_BASE_URL}/api/public/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -145,7 +146,7 @@ export const PublicChat: React.FC = () => {
 
   const fetchConversationStats = async (sessionId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/conversations/${sessionId}`);
+      const response = await fetch(`${API_BASE_URL}/api/conversations/${sessionId}`);
       if (response.ok) {
         const data = await response.json();
         setConversationStats(data.stats);

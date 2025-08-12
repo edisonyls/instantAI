@@ -107,6 +107,11 @@ export const Models: React.FC = () => {
         if (!response.ok) return;
         const { active } = await response.json();
 
+        // Debug logging
+        if (Object.keys(active || {}).length > 0) {
+          console.log("Active downloads:", active);
+        }
+
         setPullProgress((prev) => {
           const next = { ...prev };
           Object.values(active || {}).forEach((st: any) => {
@@ -126,11 +131,8 @@ export const Models: React.FC = () => {
           Object.values(active || {}).forEach((st: any) => {
             const prevVal = prevPercents[st.model] ?? 0;
             let incoming: number | null = null;
-            if (typeof st.progress_percent === "number") {
-              incoming = Math.max(
-                0,
-                Math.min(100, Math.round(st.progress_percent))
-              );
+            if (typeof st.percent === "number") {
+              incoming = Math.max(0, Math.min(100, Math.round(st.percent)));
             }
 
             // Check if this model is in verification phase
@@ -461,19 +463,57 @@ export const Models: React.FC = () => {
 
       {/* Live progress messages for models not yet in the table */}
       {Object.keys(pullProgress).length > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-blue-800 mb-2">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <h3 className="text-sm font-medium text-blue-800 mb-3">
             Download Activity
           </h3>
-          <div className="space-y-1">
+          <div className="space-y-3">
             {Object.entries(pullProgress)
               .filter(
                 ([modelName]) => !models.some((m) => m.name === modelName)
               )
               .map(([modelName, message]) => (
-                <div key={modelName} className="text-xs text-blue-700">
-                  <span className="font-mono mr-2">{modelName}</span>
-                  <span>{message}</span>
+                <div key={modelName} className="bg-white rounded-lg p-3 border">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-mono text-sm font-medium text-gray-800">
+                      {modelName}
+                    </span>
+                    <div className="flex items-center space-x-2">
+                      {pullPercents[modelName] !== undefined && (
+                        <span className="text-xs text-gray-600">
+                          {verifyingModels.has(modelName)
+                            ? "Verifying..."
+                            : `${pullPercents[modelName] ?? 0}%`}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => handleCancelDownload(modelName)}
+                        disabled={cancellingModels.has(modelName)}
+                        className={cn(
+                          "p-1 rounded",
+                          cancellingModels.has(modelName)
+                            ? "text-gray-400 cursor-not-allowed"
+                            : "text-red-600 hover:bg-red-50"
+                        )}
+                        title="Cancel download"
+                      >
+                        {cancellingModels.has(modelName) ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <X className="w-3 h-3" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  {pullPercents[modelName] !== undefined && (
+                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${pullPercents[modelName] ?? 0}%` }}
+                      />
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-600">{message}</div>
                 </div>
               ))}
           </div>

@@ -13,7 +13,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { cn } from "../utils/cn";
-import { getAgentSettings, updateAgentSettings } from "../services/api";
+import { getAgentSettings, updateAgentSettings, API_BASE_URL } from "../services/api";
 import {
   uploadDocuments,
   deleteKnowledgeBase,
@@ -76,7 +76,7 @@ export const Dashboard: React.FC = () => {
 
   const fetchKnowledgeBases = useCallback(async () => {
     try {
-      const response = await fetch("http://localhost:8000/api/knowledge-bases");
+      const response = await fetch(`${API_BASE_URL}/api/knowledge-bases`);
       if (!response.ok) {
         throw new Error(
           `Failed to fetch: ${response.status} ${response.statusText}`
@@ -104,7 +104,7 @@ export const Dashboard: React.FC = () => {
     (async () => {
       try {
         const system = await (
-          await fetch("http://localhost:8000/api/system-info")
+          await fetch(`${API_BASE_URL}/api/system-info`)
         ).json();
         setGlobalDefaults({
           chunk_size: system?.document_processing?.chunk_size,
@@ -124,7 +124,7 @@ export const Dashboard: React.FC = () => {
 
     try {
       const response = await fetch(
-        `http://localhost:8000/api/knowledge-bases/${kb.id}`
+        `${API_BASE_URL}/api/knowledge-bases/${kb.id}`
       );
       if (!response.ok) {
         throw new Error(
@@ -168,7 +168,7 @@ export const Dashboard: React.FC = () => {
 
     try {
       const response = await fetch(
-        "http://localhost:8000/api/knowledge-bases",
+        `${API_BASE_URL}/api/knowledge-bases`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -480,7 +480,7 @@ export const Dashboard: React.FC = () => {
                         Integration Example
                       </h4>
                       <pre className="text-xs overflow-x-auto">
-                        {`curl -X POST http://localhost:8000/api/public/chat \\
+                        {`curl -X POST ${API_BASE_URL || 'http://localhost:8000'}/api/public/chat \\
   -H "Content-Type: application/json" \\
   -d '{
     "api_key": "${showApiKey ? apiKey.key : "iai_********************************"}",
